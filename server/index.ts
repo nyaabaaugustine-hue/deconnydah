@@ -16,6 +16,8 @@ import photosRouter from './routes/photos';
 import valuationsRouter from './routes/valuations';
 import inspectionsRouter from './routes/inspections';
 import supervisorsRouter from './routes/supervisors';
+import authRouter from './routes/auth';
+import { seedDefaultAdmin } from './auth';
 
 // Load environment variables
 dotenv.config();
@@ -62,6 +64,7 @@ app.use('/api/photos', photosRouter);
 app.use('/api/valuations', valuationsRouter);
 app.use('/api/inspections', inspectionsRouter);
 app.use('/api/supervisors', supervisorsRouter);
+app.use('/api/auth', authRouter);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -88,6 +91,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 async function start() {
   try {
     await initializeSchema();
+    await seedDefaultAdmin();
     console.log('Database schema initialized');
     
     app.listen(PORT, () => {

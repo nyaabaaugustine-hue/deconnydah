@@ -42,10 +42,38 @@ function convertKeysReverse(obj: Record<string, any>): Record<string, any> {
 
 const API_BASE = '/api';
 
+// ── Auth token management ─────────────────────────────────────────────────────
+
+const TOKEN_KEY = 'fleet_auth_token';
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    // SSR or storage full — ignore
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = getAuthToken();
   const opts: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   };
   if (body !== undefined) {
     opts.body = JSON.stringify(convertKeysReverse(body as Record<string, any>));
@@ -76,6 +104,54 @@ function patch<T>(path: string, body: unknown): Promise<T> {
 
 function del(path: string): Promise<void> {
   return request<void>('DELETE', path);
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  displayName: string;
+}
+
+export async function login(username: string, password: string): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Login failed: ${res.status}`);
+  }
+  const data = await res.json();
+  setAuthToken(data.token);
+  return data;
+}
+
+export async function getMe(): Promise<AuthUser | null> {
+  const token = getAuthToken();
+  if (!token) return null;
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      setAuthToken(null);
+      return null;
+    }
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await post('/auth/logout', {});
+  } finally {
+    setAuthToken(null);
+  }
 }
 
 // ── Vehicles ──────────────────────────────────────────────────────────────────

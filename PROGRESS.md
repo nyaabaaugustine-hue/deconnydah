@@ -4,7 +4,7 @@ Cross-reference with `production-readiness-plan.md` in this same folder for full
 each item matters. This file tracks *what has actually been done in the code* so you (or I, in a
 future session) can pick up exactly where things left off.
 
-## Status: IN PROGRESS (Phases 1–2 complete)
+## Status: IN PROGRESS (Phases 1–3 complete)
 
 ## ✅ Done
 
@@ -31,10 +31,18 @@ future session) can pick up exactly where things left off.
 - `src/components/InspectionsView.tsx` — real API, add modal, review modal, stats, search/filter
 - Dead files moved to `_deprecated_do_not_use/` (not deleted): `src-lib-api.ts`, `src-lib-db.ts`, `src-lib-schema.ts`
 
+### Phase 3: Real authentication (complete)
+- `server/auth.ts` — password hashing via Node `crypto.scrypt`, session tokens, `requireAuth` middleware, `seedDefaultAdmin()`
+- `server/routes/auth.ts` — `/login`, `/me`, `/logout`, `/change-password` endpoints
+- `server/schema.ts` — `admin_users` and `sessions` tables with indexes
+- `server/index.ts` — auth route mounted, `seedDefaultAdmin()` called on startup
+- `src/lib/apiClient.ts` — `login()`, `getMe()`, `logout()`, token management in localStorage
+- `src/components/AdminLogin.tsx` — wired to real API (no more hardcoded admin/admin)
+- `src/App.tsx` — auth state check on load, login gate, logout button in sidebar
+
 ## ⏭️ Not started yet
 - Phase 0: Rotate Neon DB password (⚠️ you need to do this yourself in the Neon console — I cannot do this for you)
-- Phase 3: Real authentication (server-side login, sessions, wire `AdminLogin.tsx` into `App.tsx`)
-- Phase 4: Hardening (CORS allowlist, helmet tuning, rate limiting, logging)
+- Phase 4: Hardening (rate limiting, logging, DB constraints)
 - Phase 5: Testing & CI
 - Phase 6: Deployment
 
@@ -44,6 +52,9 @@ future session) can pick up exactly where things left off.
 - `analytics.ts` functions accept data params so they work with both mock and real data.
 - Server generates IDs via `crypto.randomUUID()` rather than trusting client-supplied IDs.
 - `server/types.ts` re-exports from `src/types/fleet.ts` — no duplication.
-- `camelToSnake` in `apiClient.ts` handles POST/PATCH body conversion.
 - `InspectionsView.tsx` self-contained `Inspection` type aligned with API shape (checklist stored as JSONB in Postgres).
 - No `tsconfig.server.json` — server runs via `tsx` directly.
+- Auth uses Node built-in `crypto.scrypt` for password hashing — no bcrypt dependency needed.
+- Sessions stored in DB with 7-day expiry; `requireAuth` middleware validates Bearer token on protected routes.
+- Default admin user seeded on startup: `admin` / `admin` — must change password after first login.
+- Auth token stored in `localStorage` on client; attached as `Authorization: Bearer <token>` header.

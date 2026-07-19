@@ -2,6 +2,31 @@ import { execute } from './db';
 
 // Initialize database schema
 export async function initializeSchema(): Promise<void> {
+  // Admin users table
+  await execute(`
+    CREATE TABLE IF NOT EXISTS admin_users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Sessions table
+  await execute(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
+  await execute(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`);
+
   // Supervisors table
   await execute(`
     CREATE TABLE IF NOT EXISTS supervisors (

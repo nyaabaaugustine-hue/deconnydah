@@ -1,14 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getMe, logout, type AuthUser } from '@/lib/apiClient';
+import { AdminLogin } from '@/components/AdminLogin';
 import { FleetDashboard } from '@/components/FleetDashboard';
 import { VehicleProfile } from '@/components/VehicleProfile';
 import { AnalyticsDashboard } from '@/components/AnalyticsDashboard';
 import { DriverManagement } from '@/components/DriverManagement';
 import { InspectionsView } from '@/components/InspectionsView';
+import { LogOut, Loader2 } from 'lucide-react';
 
 export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [activeView, setActiveView] = useState<'dashboard' | 'analytics' | 'vehicle' | 'drivers' | 'inspections'>('dashboard');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    getMe().then((u) => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+  }, []);
+
+  const handleLogin = async () => {
+    const u = await getMe();
+    setUser(u);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setUser(null);
+    setActiveView('dashboard');
+    setSelectedVehicleId(null);
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+          <p className="text-sm text-slate-500">Loading fleet system...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AdminLogin onLogin={handleLogin} />;
+  }
 
   const handleSelectVehicle = (id: string) => {
     setSelectedVehicleId(id);
@@ -99,13 +138,20 @@ export default function App() {
 
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center gap-3 px-2">
-            <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-sm font-medium">
-              AN
+            <div className="w-9 h-9 rounded-full bg-emerald-600 flex items-center justify-center text-sm font-bold text-white">
+              {user.displayName.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">Augustine N.</p>
-              <p className="text-xs text-slate-400 truncate">Admin</p>
+              <p className="text-sm font-medium truncate">{user.displayName}</p>
+              <p className="text-xs text-slate-400 truncate">@{user.username}</p>
             </div>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </aside>
