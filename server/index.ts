@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { initializeSchema } from './schema';
 import { healthCheck, closePool } from './db';
+import { rateLimit } from './rateLimit';
+import { requestLogger } from './logger';
 import vehiclesRouter from './routes/vehicles';
 import driversRouter from './routes/drivers';
 import documentsRouter from './routes/documents';
@@ -19,39 +21,53 @@ import supervisorsRouter from './routes/supervisors';
 import authRouter from './routes/auth';
 import { seedDefaultAdmin } from './auth';
 
-// Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(helmet());
+// ── Security ──────────────────────────────────────────────────────────────────
 
-// CORS: restrict to configured origin(s) instead of allowing any origin.
-// Set ALLOWED_ORIGINS in .env as a comma-separated list, e.g.
-// ALLOWED_ORIGINS=http://localhost:5173,https://your-production-domain.com
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https://res.cloudinary.com'],
+      connectSrc: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow non-browser tools (curl, server-to-server, no Origin header) through.
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
-      }
-    },
-  })
-);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  },
+  credentials: true,
+}));
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
-// Routes
+// ── Logging & rate limiting ───────────────────────────────────────────────────
+
+app.use(requestLogger);
+app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Too many login attempts. Try again in 15 minutes.' }));
+app.use('/api', rateLimit({ windowMs: 60 * 1000, max: 120 }));
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+app.use('/api/auth', authRouter);
 app.use('/api/vehicles', vehiclesRouter);
 app.use('/api/drivers', driversRouter);
 app.use('/api/documents', documentsRouter);
@@ -64,56 +80,39 @@ app.use('/api/photos', photosRouter);
 app.use('/api/valuations', valuationsRouter);
 app.use('/api/inspections', inspectionsRouter);
 app.use('/api/supervisors', supervisorsRouter);
-app.use('/api/auth', authRouter);
 
-// Health check endpoint
-app.get('/api/health', async (req, res) => {
+app.get('/api/health', async (_req, res) => {
   const isHealthy = await healthCheck();
   res.json({ status: isHealthy ? 'ok' : 'error', timestamp: new Date().toISOString() });
 });
 
-// 404 handler for unmatched API routes
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` });
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Central error handler — must be registered last, after all routes.
-// Anything passed to next(err) (including errors thrown inside asyncHandler-wrapped
-// route handlers) ends up here instead of crashing the process or hanging the request.
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-  });
+  res.status(err.status || 500).json({ error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message });
 });
 
-// Initialize schema and start server
+// ── Start ─────────────────────────────────────────────────────────────────────
+
 async function start() {
   try {
     await initializeSchema();
     await seedDefaultAdmin();
-    console.log('Database schema initialized');
-    
+    console.log('Database ready');
+
     app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`Server listening on http://localhost:${PORT}`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('Failed to start:', error);
     process.exit(1);
   }
 }
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down...');
-  await closePool();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down...');
-  await closePool();
-  process.exit(0);
-});
+process.on('SIGTERM', async () => { await closePool(); process.exit(0); });
+process.on('SIGINT', async () => { await closePool(); process.exit(0); });
 
 start();
