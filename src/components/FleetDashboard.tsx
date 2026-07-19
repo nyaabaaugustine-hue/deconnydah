@@ -28,6 +28,7 @@ import {
   getDocumentsForVehicle,
   createVehicle,
   daysUntilExpiry,
+  canWrite,
 } from '@/lib/apiClient';
 import type { Vehicle, Driver, VehicleDocument, VehicleStatus } from '@/types/fleet';
 
@@ -45,7 +46,7 @@ function getExpiryInfo(vehicleId: string, docType: string, documents: VehicleDoc
   return { days, expired: days !== null && days < 0, soon: days !== null && days >= 0 && days <= 30 };
 }
 
-export function FleetDashboard({ onSelectVehicle }: { onSelectVehicle: (id: string) => void }) {
+export function FleetDashboard({ onSelectVehicle, role }: { onSelectVehicle: (id: string) => void; role: string }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showExpirySoon, setShowExpirySoon] = useState(false);
@@ -182,10 +183,12 @@ export function FleetDashboard({ onSelectVehicle }: { onSelectVehicle: (id: stri
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Fleet Overview</h1>
           <p className="text-sm text-slate-500 mt-1">Monitor vehicle status, compliance, and alerts across your fleet.</p>
         </div>
-        <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Vehicle
-        </Button>
+        {canWrite(role) && (
+          <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Vehicle
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}

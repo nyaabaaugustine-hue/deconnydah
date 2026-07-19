@@ -112,6 +112,7 @@ export interface AuthUser {
   id: string;
   username: string;
   displayName: string;
+  role: 'admin' | 'manager' | 'viewer';
 }
 
 export async function login(username: string, password: string): Promise<{ token: string; user: AuthUser }> {
@@ -360,4 +361,44 @@ export function daysUntilExpiry(expiryDate: string | null): number | null {
 
 export function healthCheck(): Promise<{ status: string; timestamp: string }> {
   return get<{ status: string; timestamp: string }>('/health');
+}
+
+// ── User management (admin only) ──────────────────────────────────────────────
+
+export interface ManagedUser {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'admin' | 'manager' | 'viewer';
+  createdAt: string;
+}
+
+export function getUsers(): Promise<ManagedUser[]> {
+  return get<ManagedUser[]>('/auth/users');
+}
+
+export function createUser(data: { username: string; password: string; displayName: string; role: string }): Promise<ManagedUser> {
+  return post<ManagedUser>('/auth/users', data);
+}
+
+export function updateUserRole(id: string, data: { displayName?: string; role?: string }): Promise<void> {
+  return patch<void>(`/auth/users/${id}`, data);
+}
+
+export function deleteUser(id: string): Promise<void> {
+  return del(`/auth/users/${id}`);
+}
+
+export function resetUserPassword(id: string, newPassword: string): Promise<void> {
+  return post<void>(`/auth/users/${id}/reset-password`, { newPassword });
+}
+
+// ── Role helpers ──────────────────────────────────────────────────────────────
+
+export function canWrite(role: string): boolean {
+  return role === 'admin' || role === 'manager';
+}
+
+export function canDelete(role: string): boolean {
+  return role === 'admin';
 }

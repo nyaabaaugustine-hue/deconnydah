@@ -31,7 +31,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { getInspections, createInspection, type Inspection } from '@/lib/apiClient';
+import { getInspections, createInspection, canWrite, type Inspection } from '@/lib/apiClient';
 
 const checklistDefinitions = [
   { key: 'tyres', label: 'Tyres & Wheels' },
@@ -56,7 +56,7 @@ const statusConfig = {
 
 type StatusKey = 'pass' | 'fail' | 'flagged';
 
-export function InspectionsView() {
+export function InspectionsView({ role }: { role: string }) {
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -180,10 +180,12 @@ export function InspectionsView() {
           </div>
           <p className="text-sm text-muted-foreground">Review daily vehicle inspection checklists submitted by drivers before departure.</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="bg-primary hover:bg-primary/90">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Inspection
-        </Button>
+        {canWrite(role) && (
+          <Button onClick={() => setShowForm(true)} className="bg-primary hover:bg-primary/90">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Inspection
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

@@ -3,8 +3,10 @@ import { randomUUID } from 'crypto';
 import { query, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { ServiceLog } from '../types';
+import { requireAuth } from '../auth';
 
 const router = Router();
+router.use(requireAuth);
 
 // GET /api/services/vehicle/:vehicleId
 router.get(

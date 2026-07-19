@@ -24,6 +24,8 @@ import {
   createDriver,
   updateDriver,
   deleteDriver,
+  canWrite,
+  canDelete,
 } from '@/lib/apiClient';
 import type { Driver } from '@/types/fleet';
 
@@ -33,7 +35,7 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
   on_leave: { label: 'On Leave', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
 };
 
-export function DriverManagement() {
+export function DriverManagement({ role }: { role: string }) {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,10 +127,12 @@ export function DriverManagement() {
           <h2 className="text-2xl font-bold tracking-tight">Driver Roster</h2>
           <p className="text-sm text-muted-foreground mt-1">Manage driver profiles, licenses, and assignments.</p>
         </div>
-        <Button onClick={() => { setEditingDriver(null); setIsModalOpen(true); }} className="bg-primary hover:bg-primary/90">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Driver
-        </Button>
+        {canWrite(role) && (
+          <Button onClick={() => { setEditingDriver(null); setIsModalOpen(true); }} className="bg-primary hover:bg-primary/90">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Driver
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4">
@@ -192,23 +196,27 @@ export function DriverManagement() {
                   Hired: {new Date(driver.hireDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <Button variant="outline" size="sm" onClick={() => { setEditingDriver(driver); setIsModalOpen(true); }} className="flex-1">
-                    <Pencil className="w-3 h-3 mr-1.5" />
-                    Edit
-                  </Button>
-                  {deletingId === driver.id ? (
-                    <div className="flex gap-1">
-                      <Button variant="destructive" size="sm" onClick={() => confirmDelete(driver.id)} className="h-8 px-2 text-xs">
-                        Confirm
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setDeletingId(null)} className="h-8 px-2 text-xs">
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button variant="outline" size="sm" onClick={() => handleDelete(driver.id)} className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive">
-                      <Trash2 className="w-3 h-3" />
+                  {canWrite(role) && (
+                    <Button variant="outline" size="sm" onClick={() => { setEditingDriver(driver); setIsModalOpen(true); }} className="flex-1">
+                      <Pencil className="w-3 h-3 mr-1.5" />
+                      Edit
                     </Button>
+                  )}
+                  {canDelete(role) && (
+                    deletingId === driver.id ? (
+                      <div className="flex gap-1">
+                        <Button variant="destructive" size="sm" onClick={() => confirmDelete(driver.id)} className="h-8 px-2 text-xs">
+                          Confirm
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setDeletingId(null)} className="h-8 px-2 text-xs">
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={() => handleDelete(driver.id)} className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive">
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )
                   )}
                 </div>
               </CardContent>

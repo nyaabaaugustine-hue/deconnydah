@@ -3,8 +3,10 @@ import { query, queryOne, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Supervisor } from '../types';
 import { randomUUID } from 'crypto';
+import { requireAuth } from '../auth';
 
 const router = Router();
+router.use(requireAuth);
 
 // GET /api/supervisors — list all
 router.get(

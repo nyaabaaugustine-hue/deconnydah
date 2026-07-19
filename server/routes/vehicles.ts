@@ -3,8 +3,10 @@ import { randomUUID } from 'crypto';
 import { query, queryOne, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Vehicle } from '../types';
+import { requireAuth } from '../auth';
 
 const router = Router();
+router.use(requireAuth);
 
 const ALLOWED_STATUSES = ['active', 'in_repair', 'decommissioned', 'sold'];
 

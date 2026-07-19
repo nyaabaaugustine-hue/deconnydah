@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import { queryOne, query } from './db';
 
+export type UserRole = 'admin' | 'manager' | 'viewer';
+
 const ALGO = 'scrypt';
 const KEYLEN = 64;
 const SALT_LEN = 32;
@@ -25,7 +27,7 @@ export function generateToken(): string {
   return crypto.randomBytes(48).toString('hex');
 }
 
-export async function authenticateRequest(req: any): Promise<{ userId: string; username: string } | null> {
+export async function authenticateRequest(req: any): Promise<{ userId: string; username: string; role: UserRole } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
 
@@ -38,7 +40,17 @@ export async function authenticateRequest(req: any): Promise<{ userId: string; u
   );
 
   if (!session) return null;
-  return { userId: session.user_id, username: session.username };
+
+  const user = await queryOne<{ role: string }>(
+    'SELECT role FROM admin_users WHERE id = $1',
+    [session.user_id]
+  );
+
+  return {
+    userId: session.user_id,
+    username: session.username,
+    role: (user?.role as UserRole) || 'viewer',
+  };
 }
 
 export function requireAuth(req: any, res: any, next: any) {
@@ -53,6 +65,27 @@ export function requireAuth(req: any, res: any, next: any) {
   });
 }
 
+export function requireRole(...allowed: UserRole[]) {
+  return (req: any, res: any, next: any) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    if (!allowed.includes(user.role)) {
+      return res.status(403).json({ error: `Requires role: ${allowed.join(' or ')}` });
+    }
+    next();
+  };
+}
+
+export function canWrite(userRole: UserRole): boolean {
+  return userRole === 'admin' || userRole === 'manager';
+}
+
+export function canDelete(userRole: UserRole): boolean {
+  return userRole === 'admin';
+}
+
 export async function seedDefaultAdmin(): Promise<void> {
   const existing = await queryOne<{ id: string }>(
     'SELECT id FROM admin_users WHERE username = $1',
@@ -63,8 +96,8 @@ export async function seedDefaultAdmin(): Promise<void> {
     const id = crypto.randomUUID();
     const { hash } = hashPassword('admin');
     await query(
-      'INSERT INTO admin_users (id, username, password_hash, display_name) VALUES ($1, $2, $3, $4)',
-      [id, 'admin', hash, 'Administrator']
+      'INSERT INTO admin_users (id, username, password_hash, display_name, role) VALUES ($1, $2, $3, $4, $5)',
+      [id, 'admin', hash, 'Administrator', 'admin']
     );
     console.log('Default admin user created (admin / admin) — change this password immediately');
   }

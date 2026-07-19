@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import { queryOne, query } from '../db';
-import { verifyPassword, generateToken, authenticateRequest, hashPassword } from '../auth';
+import { verifyPassword, generateToken, authenticateRequest, hashPassword, requireAuth, requireRole } from '../auth';
 import { asyncHandler } from '../validate';
+import type { UserRole } from '../auth';
 
 const router = Router();
 
@@ -14,8 +15,8 @@ router.post('/login', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  const user = await queryOne<{ id: string; username: string; password_hash: string; display_name: string }>(
-    'SELECT id, username, password_hash, display_name FROM admin_users WHERE username = $1',
+  const user = await queryOne<{ id: string; username: string; password_hash: string; display_name: string; role: string }>(
+    'SELECT id, username, password_hash, display_name, role FROM admin_users WHERE username = $1',
     [username]
   );
 
@@ -23,12 +24,10 @@ router.post('/login', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
-  // Invalidate old sessions for this user
   await query('DELETE FROM sessions WHERE user_id = $1', [user.id]);
 
-  // Create new session
   const token = generateToken();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   await query(
     'INSERT INTO sessions (id, user_id, username, token, expires_at) VALUES ($1, $2, $3, $4, $5)',
@@ -41,20 +40,21 @@ router.post('/login', asyncHandler(async (req, res) => {
       id: user.id,
       username: user.username,
       displayName: user.display_name,
+      role: user.role,
     },
   });
 }));
 
 // GET /api/auth/me — validates token and returns current user
 router.get('/me', asyncHandler(async (req, res) => {
-  const user = await authenticateRequest(req);
-  if (!user) {
+  const auth = await authenticateRequest(req);
+  if (!auth) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const fullUser = await queryOne<{ id: string; username: string; display_name: string }>(
-    'SELECT id, username, display_name FROM admin_users WHERE id = $1',
-    [user.userId]
+  const fullUser = await queryOne<{ id: string; username: string; display_name: string; role: string }>(
+    'SELECT id, username, display_name, role FROM admin_users WHERE id = $1',
+    [auth.userId]
   );
 
   if (!fullUser) {
@@ -65,6 +65,7 @@ router.get('/me', asyncHandler(async (req, res) => {
     id: fullUser.id,
     username: fullUser.username,
     displayName: fullUser.display_name,
+    role: fullUser.role,
   });
 }));
 
@@ -79,11 +80,8 @@ router.post('/logout', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/auth/change-password — requires current password
-router.post('/change-password', asyncHandler(async (req, res) => {
-  const user = await authenticateRequest(req);
-  if (!user) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+router.post('/change-password', requireAuth, asyncHandler(async (req, res) => {
+  const user = (req as any).user;
 
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) {
@@ -104,15 +102,135 @@ router.post('/change-password', asyncHandler(async (req, res) => {
   }
 
   const { hash: newHash } = hashPassword(newPassword);
-
   await query('UPDATE admin_users SET password_hash = $1 WHERE id = $2', [newHash, user.userId]);
 
-  // Invalidate all sessions except current one
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const currentToken = authHeader.slice(7);
     await query('DELETE FROM sessions WHERE user_id = $1 AND token != $2', [user.userId, currentToken]);
   }
+
+  res.json({ ok: true });
+}));
+
+// ── User management (admin only) ──────────────────────────────────────────────
+
+// GET /api/auth/users — list all users
+router.get('/users', requireAuth, requireRole('admin'), asyncHandler(async (_req, res) => {
+  const users = await query<{ id: string; username: string; display_name: string; role: string; created_at: string }>(
+    'SELECT id, username, display_name, role, created_at FROM admin_users ORDER BY created_at ASC'
+  );
+  res.json(users.map((u) => ({
+    id: u.id,
+    username: u.username,
+    displayName: u.display_name,
+    role: u.role,
+    createdAt: u.created_at,
+  })));
+}));
+
+// POST /api/auth/users — create a new user (admin only)
+router.post('/users', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { username, password, displayName, role } = req.body || {};
+
+  if (!username || !password || !displayName) {
+    return res.status(400).json({ error: 'Username, password, and displayName are required' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+
+  const validRoles: UserRole[] = ['admin', 'manager', 'viewer'];
+  const userRole: UserRole = validRoles.includes(role as UserRole) ? (role as UserRole) : 'viewer';
+
+  const existing = await queryOne<{ id: string }>(
+    'SELECT id FROM admin_users WHERE username = $1',
+    [username]
+  );
+  if (existing) {
+    return res.status(409).json({ error: 'Username already exists' });
+  }
+
+  const id = crypto.randomUUID();
+  const { hash } = hashPassword(password);
+
+  await query(
+    'INSERT INTO admin_users (id, username, password_hash, display_name, role) VALUES ($1, $2, $3, $4, $5)',
+    [id, username, hash, displayName, userRole]
+  );
+
+  res.status(201).json({ id, username, displayName, role: userRole });
+}));
+
+// PATCH /api/auth/users/:id — update user role or display name (admin only)
+router.patch('/users/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { displayName, role } = req.body || {};
+
+  const user = await queryOne<{ id: string }>('SELECT id FROM admin_users WHERE id = $1', [id]);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const updates: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  if (displayName) {
+    updates.push(`display_name = $${idx++}`);
+    values.push(displayName);
+  }
+  if (role && ['admin', 'manager', 'viewer'].includes(role)) {
+    updates.push(`role = $${idx++}`);
+    values.push(role);
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  values.push(id);
+  await query(`UPDATE admin_users SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+
+  res.json({ ok: true });
+}));
+
+// DELETE /api/auth/users/:id — delete a user (admin only, cannot delete self)
+router.delete('/users/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const currentUser = (req as any).user;
+
+  if (id === currentUser.userId) {
+    return res.status(400).json({ error: 'Cannot delete your own account' });
+  }
+
+  const user = await queryOne<{ id: string }>('SELECT id FROM admin_users WHERE id = $1', [id]);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  await query('DELETE FROM admin_users WHERE id = $1', [id]);
+  res.json({ ok: true });
+}));
+
+// POST /api/auth/users/:id/reset-password — admin resets another user's password
+router.post('/users/:id/reset-password', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { newPassword } = req.body || {};
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+
+  const user = await queryOne<{ id: string }>('SELECT id FROM admin_users WHERE id = $1', [id]);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const { hash } = hashPassword(newPassword);
+  await query('UPDATE admin_users SET password_hash = $1 WHERE id = $2', [hash, id]);
+  await query('DELETE FROM sessions WHERE user_id = $1', [id]);
 
   res.json({ ok: true });
 }));

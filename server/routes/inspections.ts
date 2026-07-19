@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { query, queryOne, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
+import { requireAuth } from '../auth';
 
 const router = Router();
+router.use(requireAuth);
 
 const ALLOWED_STATUSES = ['pass', 'fail', 'flagged'];
 

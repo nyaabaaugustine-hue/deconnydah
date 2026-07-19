@@ -3,8 +3,10 @@ import { randomUUID } from 'crypto';
 import { query, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { TyreLog } from '../types';
+import { requireAuth } from '../auth';
 
 const router = Router();
+router.use(requireAuth);
 
 const ALLOWED_POSITIONS = ['FL', 'FR', 'RL', 'RR', 'SPARE'];
 

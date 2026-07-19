@@ -9,34 +9,13 @@ export async function initializeSchema(): Promise<void> {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       display_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin','manager','viewer')),
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-
-  // Sessions table
-  await execute(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
-      username TEXT NOT NULL,
-      token TEXT NOT NULL UNIQUE,
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`);
-
-  // Admin users table
-  await execute(`
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id TEXT PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
+  // Migration: add role column for existing DBs
+  await execute(`DO $$ BEGIN ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'viewer'; EXCEPTION WHEN duplicate_column THEN null; END $$`);
+  await execute(`DO $$ BEGIN ALTER TABLE admin_users ADD CONSTRAINT admin_users_role_check CHECK (role IN ('admin','manager','viewer')); EXCEPTION WHEN duplicate_object THEN null; END $$`);
 
   // Sessions table
   await execute(`
