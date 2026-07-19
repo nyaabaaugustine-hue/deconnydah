@@ -4,7 +4,7 @@ Cross-reference with `production-readiness-plan.md` in this same folder for full
 each item matters. This file tracks *what has actually been done in the code* so you (or I, in a
 future session) can pick up exactly where things left off.
 
-## Status: IN PROGRESS (Phases 1–3 complete)
+## Status: COMPLETE (all phases done) ✅
 
 ## ✅ Done
 
@@ -40,11 +40,27 @@ future session) can pick up exactly where things left off.
 - `src/components/AdminLogin.tsx` — wired to real API (no more hardcoded admin/admin)
 - `src/App.tsx` — auth state check on load, login gate, logout button in sidebar
 
-## ⏭️ Not started yet
+### Phase 4: Hardening (complete)
+- `server/rateLimit.ts` — in-memory rate limiter (120/min general, 10/15min for login)
+- `server/logger.ts` — request logging with method, status, duration, user
+- `server/index.ts` — tightened helmet CSP, credentials CORS, 1MB body limit
+- `server/schema.ts` — NOT NULL + CHECK constraints, UNIQUE on plate/vin/license, ON DELETE CASCADE/SET NULL, expired session cleanup
+
+### Phase 5: Tests & CI (complete)
+- `tests/apiClient.test.ts` — snake<->camel conversion (8 tests)
+- `tests/auth.test.ts` — password hashing, verification, token generation (8 tests)
+- `tests/utils.test.ts` — daysUntilExpiry (4 tests)
+- `vitest.config.ts` — node environment, path aliases
+- `.github/workflows/ci.yml` — Node 18+20 matrix, npm ci + test
+
+### Phase 6: Deployment (complete)
+- `Dockerfile` — multi-stage build (node:20-alpine), non-root user
+- `.dockerignore` — excludes node_modules, dist, .env, .git
+- `render.yaml` — Render.com deployment config (free tier)
+- `.env.example` — updated with NODE_ENV
+
+## ⏭️ Manual action required
 - Phase 0: Rotate Neon DB password (⚠️ you need to do this yourself in the Neon console — I cannot do this for you)
-- Phase 4: Hardening (rate limiting, logging, DB constraints)
-- Phase 5: Testing & CI
-- Phase 6: Deployment
 
 ## Notes / decisions made
 - Server routes return snake_case (raw DB rows); `apiClient.ts` converts to camelCase automatically via `toCamel()`/`convertKeys()`.
