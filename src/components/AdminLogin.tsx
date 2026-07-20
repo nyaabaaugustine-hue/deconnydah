@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShieldCheck, Loader2, Lock, User, Truck, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Lock, User, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -77,12 +77,8 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
             <p className="text-sm text-slate-500">Fleet Record System</p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
+          <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="mb-8">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 mb-4">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-xs font-semibold text-emerald-700">Admin Portal</span>
-              </div>
               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
               <p className="text-sm text-slate-500 mt-1">Sign in to access the fleet management dashboard.</p>
             </div>
