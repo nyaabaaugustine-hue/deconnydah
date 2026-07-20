@@ -54,13 +54,7 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
             The Evergreen Digital Fleet Record System
           </h2>
           <p className="text-lg text-slate-400 leading-relaxed">
-            Comprehensive vehicle lifecycle management, driver performance analytics, and fleet-wide insights — all in one secure platform.
-          </p>
-        </div>
-
-        <div className="relative z-10">
-          <p className="text-xs text-slate-500">
-            Cyber Technologies Ghana &middot; CyberVotex (Augustine Nyaaba)
+            Comprehensive vehicle lifecycle management, driver performance analytics, and fleet-wide insights, all in one secure platform.
           </p>
         </div>
       </div>
@@ -141,11 +135,6 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
               </Button>
             </form>
           </div>
-
-          <p className="text-center text-xs text-slate-400 mt-8 lg:hidden">
-            Cyber Technologies Ghana &middot; CyberVotex (Augustine Nyaaba)
-          </p>
-        </div>
       </div>
     </div>
   );
