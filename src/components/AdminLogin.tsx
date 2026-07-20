@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShieldCheck, Loader2, Lock, User } from 'lucide-react';
+import { ShieldCheck, Loader2, Lock, User, Truck, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,12 +10,12 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
       await login(username, password);
       onLogin();
@@ -27,68 +27,61 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
   };
 
   return (
-    <div className="min-h-screen flex relative overflow-hidden">
-      {/* Background Image Side */}
-      <div className="hidden lg:flex lg:w-1/2 relative">
-        <img
-          src="https://res.cloudinary.com/dwsl2ktt2/image/upload/v1781345822/trackker_h8mkk8.png"
-          alt="Degoony Evergreen Fleet Tracking"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/80 via-emerald-900/70 to-teal-900/80" />
+    <div className="min-h-screen flex bg-white">
+      {/* Left: Brand Panel */}
+      <div className="hidden lg:flex lg:w-[55%] relative bg-slate-900 flex-col justify-between p-12 overflow-hidden">
+        {/* Subtle geometric accents */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] border border-white/5 rounded-full -translate-y-1/2 translate-x-1/3" />
+          <div className="absolute bottom-0 left-0 w-[600px] h-[600px] border border-white/5 rounded-full translate-y-1/3 -translate-x-1/4" />
+          <div className="absolute top-1/2 left-1/2 w-[300px] h-[300px] border border-white/[0.03] rounded-full -translate-x-1/2 -translate-y-1/2" />
+        </div>
 
-        <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
-          <div className="flex items-center gap-3">
-            <img src="/favicon.png" alt="Degoony Evergreen Logo" className="w-12 h-12 rounded-xl object-cover border border-white/20" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-11 h-11 rounded-xl bg-emerald-500 flex items-center justify-center">
+              <img src="/favicon.png" alt="Logo" className="w-11 h-11 rounded-xl object-cover" />
+            </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">Degoony Evergreen</h1>
-              <p className="text-sm text-emerald-200">Logistics & Transport Gh Ltd</p>
-            </div>
-          </div>
-
-          <div className="max-w-md">
-            <h2 className="text-4xl font-bold tracking-tight leading-tight mb-4">
-              The Evergreen Digital Fleet Record System
-            </h2>
-            <p className="text-emerald-100/90 text-lg leading-relaxed">
-              Comprehensive vehicle lifecycle management, driver performance analytics, and fleet-wide insights — all in one secure platform.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-6 text-sm text-emerald-200/80">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>13 Record Categories</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>Real-time Analytics</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>Cloudinary Integrated</span>
+              <h1 className="text-lg font-bold text-white tracking-tight">Degoony Evergreen</h1>
+              <p className="text-sm text-slate-400">Logistics & Transport Gh Ltd</p>
             </div>
           </div>
         </div>
+
+        <div className="relative z-10 max-w-lg">
+          <h2 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight mb-6">
+            The Evergreen Digital Fleet Record System
+          </h2>
+          <p className="text-lg text-slate-400 leading-relaxed">
+            Comprehensive vehicle lifecycle management, driver performance analytics, and fleet-wide insights — all in one secure platform.
+          </p>
+        </div>
+
+        <div className="relative z-10">
+          <p className="text-xs text-slate-500">
+            Cyber Technologies Ghana &middot; CyberVotex (Augustine Nyaaba)
+          </p>
+        </div>
       </div>
 
-      {/* Login Form Side */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50">
+      {/* Right: Login Form */}
+      <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-slate-50">
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <img src="/favicon.png" alt="Degoony Evergreen Logo" className="w-12 h-12 rounded-xl object-cover shadow-md" />
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-slate-900">Degoony Evergreen</h1>
-              <p className="text-sm text-slate-500">Fleet Record System</p>
+          <div className="lg:hidden flex flex-col items-center mb-10">
+            <div className="w-14 h-14 rounded-xl bg-slate-900 flex items-center justify-center mb-4">
+              <img src="/favicon.png" alt="Logo" className="w-14 h-14 rounded-xl object-cover" />
             </div>
+            <h1 className="text-xl font-bold text-slate-900">Degoony Evergreen</h1>
+            <p className="text-sm text-slate-500">Fleet Record System</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
             <div className="mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 mb-4">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-xs font-medium text-emerald-700">Admin Portal</span>
+                <span className="text-xs font-semibold text-emerald-700">Admin Portal</span>
               </div>
               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
               <p className="text-sm text-slate-500 mt-1">Sign in to access the fleet management dashboard.</p>
@@ -96,14 +89,14 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-slate-700 font-medium">Username</Label>
+                <Label htmlFor="username" className="text-sm font-medium text-slate-700">Username</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     id="username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="pl-10 bg-slate-50 border-slate-200 focus:bg-white"
+                    className="pl-10 h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl"
                     placeholder="Enter your username"
                     required
                   />
@@ -111,37 +104,41 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-slate-700 font-medium">Password</Label>
+                <Label htmlFor="password" className="text-sm font-medium text-slate-700">Password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     id="password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10 bg-slate-50 border-slate-200 focus:bg-white"
+                    className="pl-10 pr-10 h-11 bg-slate-50 border-slate-200 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl"
                     placeholder="Enter your password"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
               {error && (
-                <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-200">
-                  <p className="text-sm text-red-700">{error}</p>
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200">
+                  <p className="text-sm font-medium text-red-700">{error}</p>
                 </div>
               )}
 
               <Button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 font-medium"
+                className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-500/25 transition-all duration-200 active:scale-[0.98]"
               >
                 {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Signing in...
-                  </>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Signing in...</>
                 ) : (
                   'Sign In'
                 )}
@@ -149,8 +146,8 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
             </form>
           </div>
 
-          <p className="text-center text-xs text-slate-400 mt-6">
-            Cyber Technologies Ghana · CyberVotex (Augustine Nyaaba)
+          <p className="text-center text-xs text-slate-400 mt-8 lg:hidden">
+            Cyber Technologies Ghana &middot; CyberVotex (Augustine Nyaaba)
           </p>
         </div>
       </div>
