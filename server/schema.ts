@@ -358,7 +358,7 @@ export async function initializeSchema(): Promise<void> {
     'admin_users', 'supervisors', 'drivers', 'vehicles',
     'vehicle_documents', 'service_logs', 'battery_logs', 'tyre_logs',
     'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
-    'inspections', 'vehicle_assignments', 'work_orders', 'fuel_entries',
+    'inspections', 'work_orders', 'fuel_entries',
     'expenses', 'notifications', 'company_settings', 'spare_parts', 'service_providers',
     'driver_licenses', 'driver_contracts', 'driver_evaluations',
   ];
