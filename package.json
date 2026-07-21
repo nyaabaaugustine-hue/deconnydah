@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:all": "concurrently -n SERVER,CLIENT -c green,cyan \"npm:server:dev\" \"npm:dev\"",
+    "dev": "concurrently -n SERVER,CLIENT -c green,cyan \"npm:server:dev\" \"vite\"",
+    "dev:all": "npm run dev",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
