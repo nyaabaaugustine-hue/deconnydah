@@ -3,18 +3,50 @@ import { randomUUID } from 'crypto';
 import { query, queryOne, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Vehicle } from '../types';
-import { requireAuth } from '../auth';
+import { requireAuth, requireRole } from '../auth';
 
 const router = Router();
 router.use(requireAuth);
 
 const ALLOWED_STATUSES = ['active', 'in_repair', 'decommissioned', 'sold'];
 
-// GET /api/vehicles — list all vehicles
+const VEHICLE_COLUMNS = [
+  'id', 'plate_number', 'make', 'model', 'year', 'vin',
+  'purchase_date', 'purchase_price', 'status', 'current_driver_id',
+  'created_at', 'updated_at',
+];
+
+const COLUMNS_SQL = VEHICLE_COLUMNS.join(', ');
+
+// GET /api/vehicles — list all vehicles (with optional pagination)
+// Query params: ?limit=N&cursor=lastId
+// Returns: Vehicle[] array
+// Headers: X-Has-More, X-Next-Cursor
 router.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    const vehicles = await query<Vehicle>(`SELECT * FROM vehicles ORDER BY created_at DESC`);
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 200, 1), 1000);
+    const cursor = req.query.cursor as string | undefined;
+
+    let sql: string;
+    let params: any[];
+
+    if (cursor) {
+      sql = `SELECT ${COLUMNS_SQL} FROM vehicles WHERE deleted_at IS NULL AND (created_at < (SELECT created_at FROM vehicles WHERE id = $1) OR (created_at = (SELECT created_at FROM vehicles WHERE id = $1) AND id < $1)) ORDER BY created_at DESC, id DESC LIMIT $2`;
+      params = [cursor, limit + 1];
+    } else {
+      sql = `SELECT ${COLUMNS_SQL} FROM vehicles WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT $1`;
+      params = [limit + 1];
+    }
+
+    const vehicles = await query<Vehicle>(sql, params);
+    const hasMore = vehicles.length > limit;
+    if (hasMore) vehicles.pop();
+
+    res.set({
+      'X-Has-More': String(hasMore),
+      ...(hasMore && vehicles.length > 0 ? { 'X-Next-Cursor': vehicles[vehicles.length - 1].id } : {}),
+    });
     res.json(vehicles);
   })
 );
@@ -24,7 +56,10 @@ router.get(
   '/:id',
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const vehicle = await queryOne<Vehicle>(`SELECT * FROM vehicles WHERE id = $1`, [req.params.id]);
+    const vehicle = await queryOne<Vehicle>(
+      `SELECT ${COLUMNS_SQL} FROM vehicles WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     if (!vehicle) {
       res.status(404).json({ error: 'Vehicle not found' });
       return;
@@ -36,6 +71,7 @@ router.get(
 // POST /api/vehicles — create vehicle
 router.post(
   '/',
+  requireRole('admin', 'manager'),
   requireFields(['plateNumber', 'make', 'model', 'year', 'vin', 'purchaseDate', 'purchasePrice']),
   asyncHandler(async (req, res) => {
     const b = req.body;
@@ -62,7 +98,10 @@ router.post(
       ]
     );
 
-    const created = await queryOne<Vehicle>(`SELECT * FROM vehicles WHERE id = $1`, [id]);
+    const created = await queryOne<Vehicle>(
+      `SELECT ${COLUMNS_SQL} FROM vehicles WHERE id = $1`,
+      [id]
+    );
     res.status(201).json(created);
   })
 );
@@ -70,9 +109,13 @@ router.post(
 // PATCH /api/vehicles/:id — partial update
 router.patch(
   '/:id',
+  requireRole('admin', 'manager'),
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const existing = await queryOne<Vehicle>(`SELECT * FROM vehicles WHERE id = $1`, [req.params.id]);
+    const existing = await queryOne<Vehicle>(
+      `SELECT ${COLUMNS_SQL} FROM vehicles WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     if (!existing) {
       res.status(404).json({ error: 'Vehicle not found' });
       return;
@@ -112,17 +155,24 @@ router.patch(
       await execute(`UPDATE vehicles SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
     }
 
-    const updated = await queryOne<Vehicle>(`SELECT * FROM vehicles WHERE id = $1`, [req.params.id]);
+    const updated = await queryOne<Vehicle>(
+      `SELECT ${COLUMNS_SQL} FROM vehicles WHERE id = $1`,
+      [req.params.id]
+    );
     res.json(updated);
   })
 );
 
-// DELETE /api/vehicles/:id
+// DELETE /api/vehicles/:id — soft delete
 router.delete(
   '/:id',
+  requireRole('admin'),
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const result = await execute(`DELETE FROM vehicles WHERE id = $1`, [req.params.id]);
+    const result = await execute(
+      `UPDATE vehicles SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     if (result.rowCount === 0) {
       res.status(404).json({ error: 'Vehicle not found' });
       return;

@@ -1,12 +1,19 @@
 import { describe, it, expect } from 'vitest';
 
-// Replicate the key conversion logic from apiClient.ts for testing
+// Replicate the key conversion logic from apiClient.ts for testing.
+//
+// IMPORTANT: apiClient.ts only converts keys on the way IN (raw snake_case DB
+// rows from the server -> camelCase for the frontend). Outgoing POST/PATCH
+// bodies are sent as-is (camelCase), because every Express route in
+// server/routes/*.ts reads req.body fields in camelCase directly and maps
+// them to snake_case SQL columns itself. Do not reintroduce a
+// camelCase->snake_case conversion on outgoing request bodies — an earlier
+// version of this app did that, and it silently broke every create/update:
+// POST bodies failed requireFields validation (400), and PATCH bodies matched
+// zero columns and no-opped instead of updating.
+
 function toCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-}
-
-function toSnake(s: string): string {
-  return s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
 function convertKeys<T>(obj: Record<string, any>): T {
@@ -15,14 +22,6 @@ function convertKeys<T>(obj: Record<string, any>): T {
     result[toCamel(key)] = obj[key];
   }
   return result as T;
-}
-
-function convertKeysReverse(obj: Record<string, any>): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const key of Object.keys(obj)) {
-    result[toSnake(key)] = obj[key];
-  }
-  return result;
 }
 
 describe('toCamel', () => {
@@ -42,18 +41,6 @@ describe('toCamel', () => {
   });
 });
 
-describe('toSnake', () => {
-  it('converts camelCase to snake_case', () => {
-    expect(toSnake('plateNumber')).toBe('plate_number');
-    expect(toSnake('fullName')).toBe('full_name');
-    expect(toSnake('currentDriverId')).toBe('current_driver_id');
-  });
-
-  it('leaves snake_case unchanged', () => {
-    expect(toSnake('plate_number')).toBe('plate_number');
-  });
-});
-
 describe('convertKeys', () => {
   it('converts all keys of an object to camelCase', () => {
     const input = { plate_number: 'GR-1234', full_name: 'Kwame' };
@@ -69,11 +56,14 @@ describe('convertKeys', () => {
   });
 });
 
-describe('convertKeysReverse', () => {
-  it('converts all keys of an object to snake_case', () => {
-    const input = { plateNumber: 'GR-1234', fullName: 'Kwame' };
-    const result = convertKeysReverse(input);
-    expect(result.plate_number).toBe('GR-1234');
-    expect(result.full_name).toBe('Kwame');
+describe('outgoing request bodies (regression guard)', () => {
+  // This directly encodes the contract described in the top-of-file comment,
+  // so a future change that re-adds snake_case conversion on the way out
+  // gets caught here instead of silently breaking every write in production.
+  it('does NOT convert camelCase keys before sending', () => {
+    const outgoingBody = { plateNumber: 'GR-1234', purchasePrice: 50000 };
+    const serialized = JSON.parse(JSON.stringify(outgoingBody));
+    expect(serialized).toEqual({ plateNumber: 'GR-1234', purchasePrice: 50000 });
+    expect(serialized.plate_number).toBeUndefined();
   });
 });

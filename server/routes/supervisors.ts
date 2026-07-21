@@ -3,16 +3,43 @@ import { query, queryOne, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Supervisor } from '../types';
 import { randomUUID } from 'crypto';
-import { requireAuth } from '../auth';
+import { requireAuth, requireRole } from '../auth';
 
 const router = Router();
 router.use(requireAuth);
 
-// GET /api/supervisors — list all
+const SUPERVISOR_COLUMNS = [
+  'id', 'full_name', 'phone', 'region', 'created_at', 'updated_at',
+];
+
+const COLUMNS_SQL = SUPERVISOR_COLUMNS.join(', ');
+
+// GET /api/supervisors — list all (with optional pagination)
 router.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    const rows = await query<Supervisor>(`SELECT * FROM supervisors ORDER BY full_name`);
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 200, 1), 1000);
+    const cursor = req.query.cursor as string | undefined;
+
+    let sql: string;
+    let params: any[];
+
+    if (cursor) {
+      sql = `SELECT ${COLUMNS_SQL} FROM supervisors WHERE deleted_at IS NULL AND (full_name > (SELECT full_name FROM supervisors WHERE id = $1) OR (full_name = (SELECT full_name FROM supervisors WHERE id = $1) AND id > $1)) ORDER BY full_name, id LIMIT $2`;
+      params = [cursor, limit + 1];
+    } else {
+      sql = `SELECT ${COLUMNS_SQL} FROM supervisors WHERE deleted_at IS NULL ORDER BY full_name, id LIMIT $1`;
+      params = [limit + 1];
+    }
+
+    const rows = await query<Supervisor>(sql, params);
+    const hasMore = rows.length > limit;
+    if (hasMore) rows.pop();
+
+    res.set({
+      'X-Has-More': String(hasMore),
+      ...(hasMore && rows.length > 0 ? { 'X-Next-Cursor': rows[rows.length - 1].id } : {}),
+    });
     res.json(rows);
   })
 );
@@ -22,7 +49,10 @@ router.get(
   '/:id',
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const row = await queryOne<Supervisor>(`SELECT * FROM supervisors WHERE id = $1`, [req.params.id]);
+    const row = await queryOne<Supervisor>(
+      `SELECT ${COLUMNS_SQL} FROM supervisors WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     if (!row) {
       res.status(404).json({ error: 'Supervisor not found' });
       return;
@@ -34,6 +64,7 @@ router.get(
 // POST /api/supervisors
 router.post(
   '/',
+  requireRole('admin', 'manager'),
   requireFields(['fullName', 'phone', 'region']),
   asyncHandler(async (req, res) => {
     const b = req.body;
@@ -42,7 +73,7 @@ router.post(
       `INSERT INTO supervisors (id, full_name, phone, region) VALUES ($1, $2, $3, $4)`,
       [id, b.fullName, b.phone, b.region]
     );
-    const created = await queryOne<Supervisor>(`SELECT * FROM supervisors WHERE id = $1`, [id]);
+    const created = await queryOne<Supervisor>(`SELECT ${COLUMNS_SQL} FROM supervisors WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -50,9 +81,13 @@ router.post(
 // PATCH /api/supervisors/:id
 router.patch(
   '/:id',
+  requireRole('admin', 'manager'),
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const existing = await queryOne<Supervisor>(`SELECT * FROM supervisors WHERE id = $1`, [req.params.id]);
+    const existing = await queryOne<Supervisor>(
+      `SELECT ${COLUMNS_SQL} FROM supervisors WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     if (!existing) {
       res.status(404).json({ error: 'Supervisor not found' });
       return;
@@ -81,17 +116,21 @@ router.patch(
       await execute(`UPDATE supervisors SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
     }
 
-    const updated = await queryOne<Supervisor>(`SELECT * FROM supervisors WHERE id = $1`, [req.params.id]);
+    const updated = await queryOne<Supervisor>(`SELECT ${COLUMNS_SQL} FROM supervisors WHERE id = $1`, [req.params.id]);
     res.json(updated);
   })
 );
 
-// DELETE /api/supervisors/:id
+// DELETE /api/supervisors/:id — soft delete
 router.delete(
   '/:id',
+  requireRole('admin'),
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const result = await execute(`DELETE FROM supervisors WHERE id = $1`, [req.params.id]);
+    const result = await execute(
+      `UPDATE supervisors SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [req.params.id]
+    );
     if (result.rowCount === 0) {
       res.status(404).json({ error: 'Supervisor not found' });
       return;

@@ -29,7 +29,9 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="min-h-screen flex bg-white">
       {/* Left: Brand Panel */}
-      <div className="hidden lg:flex lg:w-[55%] relative bg-slate-900 flex-col justify-between p-12 overflow-hidden">
+      <div className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-12 overflow-hidden bg-cover bg-center bg-no-repeat" style={{ backgroundImage: "url('https://res.cloudinary.com/dwsl2ktt2/image/upload/v1784469601/dgonny_qytmb4.png')" }}>
+        {/* Dark overlay for text readability */}
+        <div className="absolute inset-0 bg-slate-900/60" />
         {/* Subtle geometric accents */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] border border-white/5 rounded-full -translate-y-1/2 translate-x-1/3" />
@@ -44,19 +46,12 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-tight">Degoony Evergreen</h1>
-              <p className="text-sm text-slate-400">Logistics & Transport Gh Ltd</p>
+              <p className="text-sm text-emerald-400">Logistics & Transport Gh Ltd</p>
             </div>
           </div>
         </div>
 
-        <div className="relative z-10 max-w-lg">
-          <h2 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight mb-6">
-            The Evergreen Digital Fleet Record System
-          </h2>
-          <p className="text-lg text-slate-400 leading-relaxed">
-            Comprehensive vehicle lifecycle management, driver performance analytics, and fleet-wide insights, all in one secure platform.
-          </p>
-        </div>
+        <div className="relative z-10 max-w-lg" />
       </div>
 
       {/* Right: Login Form */}
@@ -71,7 +66,7 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
             <p className="text-sm text-slate-500">Fleet Record System</p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.4),0_0_45px_rgba(52,211,153,0.15)]">
             <div className="mb-8">
               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h2>
               <p className="text-sm text-slate-500 mt-1">Sign in to access the fleet management dashboard.</p>
@@ -135,7 +130,9 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
               </Button>
             </form>
           </div>
+        </div>
       </div>
     </div>
   );
 }
+

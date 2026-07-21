@@ -96,9 +96,9 @@ export async function seedDefaultAdmin(): Promise<void> {
     const id = crypto.randomUUID();
     const { hash } = hashPassword('admin');
     await query(
-      'INSERT INTO admin_users (id, username, password_hash, display_name, role) VALUES ($1, $2, $3, $4, $5)',
-      [id, 'admin', hash, 'Administrator', 'admin']
+      'INSERT INTO admin_users (id, username, password_hash, display_name, role, must_change_password) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, 'admin', hash, 'Administrator', 'admin', true]
     );
-    console.log('Default admin user created (admin / admin) — change this password immediately');
+    console.log('Default admin user created (admin / admin) — must change password on first login');
   }
 }

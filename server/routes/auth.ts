@@ -15,8 +15,8 @@ router.post('/login', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  const user = await queryOne<{ id: string; username: string; password_hash: string; display_name: string; role: string }>(
-    'SELECT id, username, password_hash, display_name, role FROM admin_users WHERE username = $1',
+  const user = await queryOne<{ id: string; username: string; password_hash: string; display_name: string; role: string; must_change_password: boolean }>(
+    'SELECT id, username, password_hash, display_name, role, must_change_password FROM admin_users WHERE username = $1',
     [username]
   );
 
@@ -41,6 +41,7 @@ router.post('/login', asyncHandler(async (req, res) => {
       username: user.username,
       displayName: user.display_name,
       role: user.role,
+      mustChangePassword: user.must_change_password,
     },
   });
 }));
@@ -52,8 +53,8 @@ router.get('/me', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const fullUser = await queryOne<{ id: string; username: string; display_name: string; role: string }>(
-    'SELECT id, username, display_name, role FROM admin_users WHERE id = $1',
+  const fullUser = await queryOne<{ id: string; username: string; display_name: string; role: string; must_change_password: boolean }>(
+    'SELECT id, username, display_name, role, must_change_password FROM admin_users WHERE id = $1',
     [auth.userId]
   );
 
@@ -66,6 +67,7 @@ router.get('/me', asyncHandler(async (req, res) => {
     username: fullUser.username,
     displayName: fullUser.display_name,
     role: fullUser.role,
+    mustChangePassword: fullUser.must_change_password,
   });
 }));
 
@@ -88,8 +90,8 @@ router.post('/change-password', requireAuth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Current and new passwords are required' });
   }
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
   }
 
   const admin = await queryOne<{ id: string; password_hash: string }>(
@@ -102,7 +104,7 @@ router.post('/change-password', requireAuth, asyncHandler(async (req, res) => {
   }
 
   const { hash: newHash } = hashPassword(newPassword);
-  await query('UPDATE admin_users SET password_hash = $1 WHERE id = $2', [newHash, user.userId]);
+  await query('UPDATE admin_users SET password_hash = $1, must_change_password = false WHERE id = $2', [newHash, user.userId]);
 
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -137,8 +139,8 @@ router.post('/users', requireAuth, requireRole('admin'), asyncHandler(async (req
     return res.status(400).json({ error: 'Username, password, and displayName are required' });
   }
 
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
 
   const validRoles: UserRole[] = ['admin', 'manager', 'viewer'];
@@ -156,8 +158,8 @@ router.post('/users', requireAuth, requireRole('admin'), asyncHandler(async (req
   const { hash } = hashPassword(password);
 
   await query(
-    'INSERT INTO admin_users (id, username, password_hash, display_name, role) VALUES ($1, $2, $3, $4, $5)',
-    [id, username, hash, displayName, userRole]
+    'INSERT INTO admin_users (id, username, password_hash, display_name, role, must_change_password) VALUES ($1, $2, $3, $4, $5, $6)',
+    [id, username, hash, displayName, userRole, true]
   );
 
   res.status(201).json({ id, username, displayName, role: userRole });
@@ -219,8 +221,8 @@ router.post('/users/:id/reset-password', requireAuth, requireRole('admin'), asyn
   const { id } = req.params;
   const { newPassword } = req.body || {};
 
-  if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
   }
 
   const user = await queryOne<{ id: string }>('SELECT id FROM admin_users WHERE id = $1', [id]);
@@ -229,7 +231,9 @@ router.post('/users/:id/reset-password', requireAuth, requireRole('admin'), asyn
   }
 
   const { hash } = hashPassword(newPassword);
-  await query('UPDATE admin_users SET password_hash = $1 WHERE id = $2', [hash, id]);
+  // Admin-reset passwords must also be changed by the user on next login — an admin
+  // knowing the new password (even briefly) shouldn't count as that user's real secret.
+  await query('UPDATE admin_users SET password_hash = $1, must_change_password = true WHERE id = $2', [hash, id]);
   await query('DELETE FROM sessions WHERE user_id = $1', [id]);
 
   res.json({ ok: true });

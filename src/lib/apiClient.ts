@@ -18,10 +18,6 @@ function toCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
-function toSnake(s: string): string {
-  return s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-}
-
 function convertKeys<T>(obj: Record<string, any>): T {
   const result: Record<string, any> = {};
   for (const key of Object.keys(obj)) {
@@ -30,12 +26,19 @@ function convertKeys<T>(obj: Record<string, any>): T {
   return result as T;
 }
 
-function convertKeysReverse(obj: Record<string, any>): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const key of Object.keys(obj)) {
-    result[toSnake(key)] = obj[key];
+// Postgres NUMERIC/DECIMAL columns come back from node-postgres as STRINGS
+// (to avoid floating-point precision loss) — not numbers. If code sums them with
+// `+` before converting, JS silently does string concatenation instead of
+// arithmetic (e.g. "0" + "3200.00" + "450.00" => "03200.00450.00"). This helper
+// coerces the known money/quantity fields to real numbers right after fetch, so
+// every consumer downstream always works with actual numbers.
+function coerceNumberFields<T extends Record<string, any>>(obj: T, fields: (keyof T)[]): T {
+  for (const field of fields) {
+    if (obj[field] !== null && obj[field] !== undefined) {
+      (obj as any)[field] = Number(obj[field]);
+    }
   }
-  return result;
+  return obj;
 }
 
 // ── Base fetch helpers ────────────────────────────────────────────────────────
@@ -75,8 +78,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   };
+  // NOTE: no camelCase→snake_case conversion here. Every Express route
+  // (server/routes/*.ts) reads req.body fields in camelCase directly (e.g.
+  // `b.plateNumber`, `requireFields(['plateNumber', ...])`) and maps them to
+  // snake_case SQL columns itself. Converting the outgoing body to snake_case
+  // (as an earlier version of this function did) meant the server never found
+  // the keys it was looking for: creates failed requireFields validation with a
+  // 400, and updates matched zero columns and silently no-opped.
   if (body !== undefined) {
-    opts.body = JSON.stringify(convertKeysReverse(body as Record<string, any>));
+    opts.body = JSON.stringify(body);
   }
 
   const res = await fetch(`${API_BASE}${path}`, opts);
@@ -113,16 +123,35 @@ export interface AuthUser {
   username: string;
   displayName: string;
   role: 'admin' | 'manager' | 'viewer';
+  mustChangePassword?: boolean;
 }
 
+const BACKEND_UNREACHABLE_MESSAGE =
+  "Can't reach the backend server. Make sure `npm run server` is running (in its own terminal, at the same time as `npm run dev`) before signing in.";
+
 export async function login(username: string, password: string): Promise<{ token: string; user: AuthUser }> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    // fetch() itself threw — network-level failure, e.g. backend not listening at all
+    throw new Error(BACKEND_UNREACHABLE_MESSAGE);
+  }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
+    const raw = await res.text();
+    let err: { error?: string };
+    try {
+      err = JSON.parse(raw);
+    } catch {
+      // Non-JSON body (e.g. Vite's dev-proxy default error page) means the request
+      // never actually reached our Express server, not that the server rejected it.
+      throw new Error(BACKEND_UNREACHABLE_MESSAGE);
+    }
     throw new Error(err.error || `Login failed: ${res.status}`);
   }
   const data = await res.json();
@@ -155,22 +184,26 @@ export async function logout(): Promise<void> {
   }
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await post('/auth/change-password', { currentPassword, newPassword });
+}
+
 // ── Vehicles ──────────────────────────────────────────────────────────────────
 
 export function getVehicles(): Promise<Vehicle[]> {
-  return get<Vehicle[]>('/vehicles').then((rows) => rows.map((r) => convertKeys<Vehicle>(r)));
+  return get<Vehicle[]>('/vehicles').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<Vehicle>(r), ['purchasePrice', 'year'])));
 }
 
 export function getVehicle(id: string): Promise<Vehicle | null> {
-  return get<Vehicle>(`/vehicles/${id}`).then((r) => (r ? convertKeys<Vehicle>(r) : null)).catch(() => null);
+  return get<Vehicle>(`/vehicles/${id}`).then((r) => (r ? coerceNumberFields(convertKeys<Vehicle>(r), ['purchasePrice', 'year']) : null)).catch(() => null);
 }
 
 export function createVehicle(data: Partial<Vehicle>): Promise<Vehicle> {
-  return post<Vehicle>('/vehicles', data).then((r) => convertKeys<Vehicle>(r));
+  return post<Vehicle>('/vehicles', data).then((r) => coerceNumberFields(convertKeys<Vehicle>(r), ['purchasePrice', 'year']));
 }
 
 export function updateVehicle(id: string, data: Partial<Vehicle>): Promise<Vehicle> {
-  return patch<Vehicle>(`/vehicles/${id}`, data).then((r) => convertKeys<Vehicle>(r));
+  return patch<Vehicle>(`/vehicles/${id}`, data).then((r) => coerceNumberFields(convertKeys<Vehicle>(r), ['purchasePrice', 'year']));
 }
 
 export function deleteVehicle(id: string): Promise<void> {
@@ -221,60 +254,60 @@ export function createDocument(data: Partial<VehicleDocument>): Promise<VehicleD
 
 export function getServiceLogsForVehicle(vehicleId: string): Promise<ServiceLog[]> {
   return get<ServiceLog[]>(`/services/vehicle/${vehicleId}`).then((rows) =>
-    rows.map((r) => convertKeys<ServiceLog>(r)),
+    rows.map((r) => coerceNumberFields(convertKeys<ServiceLog>(r), ['cost', 'mileageKm'])),
   );
 }
 
 export function createServiceLog(data: Partial<ServiceLog>): Promise<ServiceLog> {
-  return post<ServiceLog>('/services', data).then((r) => convertKeys<ServiceLog>(r));
+  return post<ServiceLog>('/services', data).then((r) => coerceNumberFields(convertKeys<ServiceLog>(r), ['cost', 'mileageKm']));
 }
 
 // ── Battery logs (per vehicle) ────────────────────────────────────────────────
 
 export function getBatteryLogsForVehicle(vehicleId: string): Promise<BatteryLog[]> {
   return get<BatteryLog[]>(`/battery/vehicle/${vehicleId}`).then((rows) =>
-    rows.map((r) => convertKeys<BatteryLog>(r)),
+    rows.map((r) => coerceNumberFields(convertKeys<BatteryLog>(r), ['cost'])),
   );
 }
 
 export function createBatteryLog(data: Partial<BatteryLog>): Promise<BatteryLog> {
-  return post<BatteryLog>('/battery', data).then((r) => convertKeys<BatteryLog>(r));
+  return post<BatteryLog>('/battery', data).then((r) => coerceNumberFields(convertKeys<BatteryLog>(r), ['cost']));
 }
 
 // ── Tyre logs (per vehicle) ───────────────────────────────────────────────────
 
 export function getTyreLogsForVehicle(vehicleId: string): Promise<TyreLog[]> {
   return get<TyreLog[]>(`/tyres/vehicle/${vehicleId}`).then((rows) =>
-    rows.map((r) => convertKeys<TyreLog>(r)),
+    rows.map((r) => coerceNumberFields(convertKeys<TyreLog>(r), ['cost'])),
   );
 }
 
 export function createTyreLog(data: Partial<TyreLog>): Promise<TyreLog> {
-  return post<TyreLog>('/tyres', data).then((r) => convertKeys<TyreLog>(r));
+  return post<TyreLog>('/tyres', data).then((r) => coerceNumberFields(convertKeys<TyreLog>(r), ['cost']));
 }
 
 // ── Revenue entries (per vehicle) ─────────────────────────────────────────────
 
 export function getRevenueForVehicle(vehicleId: string): Promise<RevenueEntry[]> {
   return get<RevenueEntry[]>(`/revenue/vehicle/${vehicleId}`).then((rows) =>
-    rows.map((r) => convertKeys<RevenueEntry>(r)),
+    rows.map((r) => coerceNumberFields(convertKeys<RevenueEntry>(r), ['amount'])),
   );
 }
 
 export function createRevenueEntry(data: Partial<RevenueEntry>): Promise<RevenueEntry> {
-  return post<RevenueEntry>('/revenue', data).then((r) => convertKeys<RevenueEntry>(r));
+  return post<RevenueEntry>('/revenue', data).then((r) => coerceNumberFields(convertKeys<RevenueEntry>(r), ['amount']));
 }
 
 // ── Accident reports (per vehicle) ────────────────────────────────────────────
 
 export function getAccidentsForVehicle(vehicleId: string): Promise<AccidentReport[]> {
   return get<AccidentReport[]>(`/accidents/vehicle/${vehicleId}`).then((rows) =>
-    rows.map((r) => convertKeys<AccidentReport>(r)),
+    rows.map((r) => coerceNumberFields(convertKeys<AccidentReport>(r), ['cost'])),
   );
 }
 
 export function createAccidentReport(data: Partial<AccidentReport>): Promise<AccidentReport> {
-  return post<AccidentReport>('/accidents', data).then((r) => convertKeys<AccidentReport>(r));
+  return post<AccidentReport>('/accidents', data).then((r) => coerceNumberFields(convertKeys<AccidentReport>(r), ['cost']));
 }
 
 // ── Vehicle photos (per vehicle) ──────────────────────────────────────────────
@@ -289,16 +322,49 @@ export function createVehiclePhoto(data: Partial<VehiclePhoto>): Promise<Vehicle
   return post<VehiclePhoto>('/photos', data).then((r) => convertKeys<VehiclePhoto>(r));
 }
 
+// ── Cloudinary image upload ───────────────────────────────────────────────────
+// Two-step signed upload: (1) ask our server for a signature (the Cloudinary API
+// secret never leaves the server), (2) POST the file bytes straight to Cloudinary
+// from the browser using that signature. See server/routes/uploads.ts.
+
+interface CloudinarySignature {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  folder: string;
+  signature: string;
+  uploadUrl: string;
+}
+
+export async function uploadImageToCloudinary(file: File, folder = 'vehicle-photos'): Promise<string> {
+  const sig = await post<CloudinarySignature>('/uploads/cloudinary-signature', { folder });
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('api_key', sig.apiKey);
+  form.append('timestamp', String(sig.timestamp));
+  form.append('signature', sig.signature);
+  form.append('folder', sig.folder);
+
+  const res = await fetch(sig.uploadUrl, { method: 'POST', body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message || 'Image upload to Cloudinary failed');
+  }
+  const data = await res.json();
+  return data.secure_url as string;
+}
+
 // ── Valuations (per vehicle) ──────────────────────────────────────────────────
 
 export function getValuationsForVehicle(vehicleId: string): Promise<Valuation[]> {
   return get<Valuation[]>(`/valuations/vehicle/${vehicleId}`).then((rows) =>
-    rows.map((r) => convertKeys<Valuation>(r)),
+    rows.map((r) => coerceNumberFields(convertKeys<Valuation>(r), ['amount'])),
   );
 }
 
 export function createValuation(data: Partial<Valuation>): Promise<Valuation> {
-  return post<Valuation>('/valuations', data).then((r) => convertKeys<Valuation>(r));
+  return post<Valuation>('/valuations', data).then((r) => coerceNumberFields(convertKeys<Valuation>(r), ['amount']));
 }
 
 // ── Inspections (per vehicle) ─────────────────────────────────────────────────

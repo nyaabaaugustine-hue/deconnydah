@@ -8,6 +8,7 @@ export interface Driver {
   supervisorId: string;
   hireDate: string;
   status: string;
+  photoUrl?: string | null;
 }
 
 export interface Supervisor {
@@ -85,6 +86,7 @@ export interface VehiclePhoto {
   category: string;
   caption: string;
   takenAt: string;
+  imageUrl: string;
 }
 
 export interface Valuation {

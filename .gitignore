@@ -33,3 +33,6 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Stray Windows artifact (created by an accidental `> nul` redirect in a shell)
+nul
