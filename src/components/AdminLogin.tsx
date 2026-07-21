@@ -41,8 +41,8 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-11 h-11 rounded-xl bg-emerald-500 flex items-center justify-center">
-              <img src="/favicon.png" alt="Logo" className="w-11 h-11 rounded-xl object-cover" />
+            <div className="w-11 h-11 rounded-xl overflow-hidden">
+              <img src="/logo.png" alt="Degoony Evergreen Logistics" className="w-full h-full object-cover" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-tight">Degoony Evergreen</h1>
@@ -59,8 +59,8 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden flex flex-col items-center mb-10">
-            <div className="w-14 h-14 rounded-xl bg-slate-900 flex items-center justify-center mb-4">
-              <img src="/favicon.png" alt="Logo" className="w-14 h-14 rounded-xl object-cover" />
+            <div className="w-14 h-14 rounded-xl overflow-hidden mb-4">
+              <img src="/logo.png" alt="Degoony Evergreen Logistics" className="w-full h-full object-cover" />
             </div>
             <h1 className="text-xl font-bold text-slate-900">Degoony Evergreen</h1>
             <p className="text-sm text-slate-500">Fleet Record System</p>

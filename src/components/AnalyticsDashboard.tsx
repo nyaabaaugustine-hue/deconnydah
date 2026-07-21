@@ -37,6 +37,7 @@ import {
   getVehicles,
   getDrivers,
   getSupervisors,
+  getInspections,
   getServiceLogsForVehicle,
   getBatteryLogsForVehicle,
   getTyreLogsForVehicle,
@@ -44,6 +45,7 @@ import {
   getAccidentsForVehicle,
   getDocumentsForVehicle,
 } from '@/lib/apiClient';
+import type { Inspection } from '@/lib/apiClient';
 import type {
   Vehicle, Driver, Supervisor, VehicleDocument,
   ServiceLog, BatteryLog, TyreLog, RevenueEntry, AccidentReport,
@@ -98,6 +100,7 @@ export function AnalyticsDashboard() {
   const [revenueEntries, setRevenueEntries] = useState<RevenueEntry[]>([]);
   const [accidentReports, setAccidentReports] = useState<AccidentReport[]>([]);
   const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>([]);
+  const [inspections, setInspections] = useState<Inspection[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +111,8 @@ export function AnalyticsDashboard() {
         setVehicles(v);
         setDrivers(d);
         setSupervisors(s);
+
+        const [allInspections] = await Promise.all([getInspections()]);
 
         const allService: ServiceLog[] = [];
         const allBattery: BatteryLog[] = [];
@@ -146,6 +151,7 @@ export function AnalyticsDashboard() {
         setRevenueEntries(allRevenue);
         setAccidentReports(allAccidents);
         setVehicleDocuments(allDocs);
+        setInspections(allInspections);
       } catch (err: any) {
         if (!cancelled) setError(err.message || 'Failed to load analytics data');
       } finally {
@@ -161,14 +167,17 @@ export function AnalyticsDashboard() {
     [vehicles, drivers, serviceLogs, batteryLogs, tyreLogs, revenueEntries, accidentReports, vehicleDocuments],
   );
   const driverScores = useMemo(
-    () => calculateDriverScores(drivers, supervisors, revenueEntries, accidentReports),
-    [drivers, supervisors, revenueEntries, accidentReports],
+    () => calculateDriverScores(drivers, supervisors, revenueEntries, accidentReports, inspections),
+    [drivers, supervisors, revenueEntries, accidentReports, inspections],
   );
   const supervisorTeams = useMemo(
-    () => calculateSupervisorTeams(drivers, supervisors, revenueEntries, accidentReports),
-    [drivers, supervisors, revenueEntries, accidentReports],
+    () => calculateSupervisorTeams(drivers, supervisors, revenueEntries, accidentReports, inspections),
+    [drivers, supervisors, revenueEntries, accidentReports, inspections],
   );
-  const insights = useMemo(() => generateDecisionInsights(), []);
+  const insights = useMemo(
+    () => generateDecisionInsights(vehicles, serviceLogs, batteryLogs, tyreLogs, revenueEntries, accidentReports),
+    [vehicles, serviceLogs, batteryLogs, tyreLogs, revenueEntries, accidentReports],
+  );
 
   // ── Premium loading ──────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@ import { query, queryOne, execute } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { VehicleDocument } from '../types';
 import { requireAuth, requireRole } from '../auth';
-import { storageService, DOCUMENTS_BUCKET } from '../storage/storage.service';
+import { storageService, DOCUMENTS_BUCKET, PHOTOS_BUCKET } from '../storage/storage.service';
 
 const router = Router();
 router.use(requireAuth);

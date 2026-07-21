@@ -214,7 +214,7 @@ function EditRoleModal({ user, onClose, onSaved }: { user: ManagedUser; onClose:
           </div>
           <div className="space-y-2">
             <Label>Role</Label>
-            <Select value={role} onValueChange={setRole}>
+            <Select value={role} onValueChange={(value) => setRole(value as "admin" | "manager" | "viewer")}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="admin">Admin</SelectItem>

@@ -232,6 +232,23 @@ export function deleteDriver(id: string): Promise<void> {
   return del(`/drivers/${id}`);
 }
 
+export interface DriverProfile {
+  driver: Driver;
+  supervisor: { id: string; fullName: string; phone: string; region: string } | null;
+  assignedVehicle: { id: string; plateNumber: string; make: string; model: string; year: number; status: string } | null;
+  inspections: { id: string; vehicleId: string; inspectionDate: string; overallStatus: string; notes: string; photoCount: number }[];
+  revenue: {
+    total: number;
+    trips: number;
+    entries: { id: string; vehicleId: string; tripDate: string; tripReference: string; route: string; client: string; amount: number }[];
+  };
+  accidents: { id: string; vehicleId: string; accidentDate: string; description: string; cost: number; driverAtFault: boolean }[];
+}
+
+export function getDriverProfile(id: string): Promise<DriverProfile | null> {
+  return get<DriverProfile>(`/drivers/${id}/profile`).catch(() => null);
+}
+
 // ── Supervisors ───────────────────────────────────────────────────────────────
 
 export function getSupervisors(): Promise<Supervisor[]> {
@@ -467,4 +484,303 @@ export function canWrite(role: string): boolean {
 
 export function canDelete(role: string): boolean {
   return role === 'admin';
+}
+
+// ── Assignments ─────────────────────────────────────────────────────────────
+
+export interface VehicleAssignment {
+  id: string;
+  vehicleId: string;
+  driverId: string;
+  vehiclePlate?: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
+  driverName?: string;
+  startDate: string;
+  endDate?: string;
+  purpose: string;
+  status: 'active' | 'completed' | 'cancelled';
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getAssignments(): Promise<VehicleAssignment[]> {
+  return get<any[]>('/assignments').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<VehicleAssignment>(r), [])));
+}
+
+export function getActiveAssignments(): Promise<VehicleAssignment[]> {
+  return get<any[]>('/assignments/active').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<VehicleAssignment>(r), [])));
+}
+
+export function getAssignmentsForVehicle(vehicleId: string): Promise<VehicleAssignment[]> {
+  return get<any[]>(`/assignments/vehicle/${vehicleId}`).then((rows) => rows.map((r) => coerceNumberFields(convertKeys<VehicleAssignment>(r), [])));
+}
+
+export function getAssignmentsForDriver(driverId: string): Promise<VehicleAssignment[]> {
+  return get<any[]>(`/assignments/driver/${driverId}`).then((rows) => rows.map((r) => coerceNumberFields(convertKeys<VehicleAssignment>(r), [])));
+}
+
+export function createAssignment(data: Partial<VehicleAssignment>): Promise<VehicleAssignment> {
+  return post<any>('/assignments', data).then((r) => coerceNumberFields(convertKeys<VehicleAssignment>(r), []));
+}
+
+export function updateAssignment(id: string, data: Partial<VehicleAssignment>): Promise<VehicleAssignment> {
+  return patch<any>(`/assignments/${id}`, data).then((r) => coerceNumberFields(convertKeys<VehicleAssignment>(r), []));
+}
+
+export function deleteAssignment(id: string): Promise<void> {
+  return del(`/assignments/${id}`);
+}
+
+// ── Work Orders ─────────────────────────────────────────────────────────────
+
+export interface WorkOrder {
+  id: string;
+  vehicleId: string;
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'pending' | 'approved' | 'in_progress' | 'completed' | 'cancelled';
+  assignedTo: string;
+  estimatedCost: number;
+  actualCost: number;
+  dueDate?: string;
+  completedDate?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getWorkOrders(): Promise<WorkOrder[]> {
+  return get<any[]>('/work-orders').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<WorkOrder>(r), ['estimatedCost', 'actualCost'])));
+}
+
+export function getWorkOrder(id: string): Promise<WorkOrder> {
+  return get<any>(`/work-orders/${id}`).then((r) => coerceNumberFields(convertKeys<WorkOrder>(r), ['estimatedCost', 'actualCost']));
+}
+
+export function createWorkOrder(data: Partial<WorkOrder>): Promise<WorkOrder> {
+  return post<any>('/work-orders', data).then((r) => coerceNumberFields(convertKeys<WorkOrder>(r), ['estimatedCost', 'actualCost']));
+}
+
+export function updateWorkOrder(id: string, data: Partial<WorkOrder>): Promise<WorkOrder> {
+  return patch<any>(`/work-orders/${id}`, data).then((r) => coerceNumberFields(convertKeys<WorkOrder>(r), ['estimatedCost', 'actualCost']));
+}
+
+export function deleteWorkOrder(id: string): Promise<void> {
+  return del(`/work-orders/${id}`);
+}
+
+// ── Fuel ────────────────────────────────────────────────────────────────────
+
+export interface FuelEntry {
+  id: string;
+  vehicleId: string;
+  driverId?: string;
+  fuelDate: string;
+  station: string;
+  fuelType: string;
+  liters: number;
+  costPerLiter: number;
+  totalCost: number;
+  mileageKm?: number;
+  fuelCard: string;
+  receiptNumber: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getFuelEntries(): Promise<FuelEntry[]> {
+  return get<any[]>('/fuel').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<FuelEntry>(r), ['liters', 'costPerLiter', 'totalCost'])));
+}
+
+export function getFuelEntriesForVehicle(vehicleId: string): Promise<FuelEntry[]> {
+  return get<any[]>(`/fuel/vehicle/${vehicleId}`).then((rows) => rows.map((r) => coerceNumberFields(convertKeys<FuelEntry>(r), ['liters', 'costPerLiter', 'totalCost'])));
+}
+
+export function createFuelEntry(data: Partial<FuelEntry>): Promise<FuelEntry> {
+  return post<any>('/fuel', data).then((r) => coerceNumberFields(convertKeys<FuelEntry>(r), ['liters', 'costPerLiter', 'totalCost']));
+}
+
+export function deleteFuelEntry(id: string): Promise<void> {
+  return del(`/fuel/${id}`);
+}
+
+// ── Expenses ────────────────────────────────────────────────────────────────
+
+export interface Expense {
+  id: string;
+  vehicleId?: string;
+  driverId?: string;
+  category: string;
+  description: string;
+  amount: number;
+  expenseDate: string;
+  receiptUrl: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getExpenses(): Promise<Expense[]> {
+  return get<any[]>('/expenses').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<Expense>(r), ['amount'])));
+}
+
+export function getExpensesForVehicle(vehicleId: string): Promise<Expense[]> {
+  return get<any[]>(`/expenses/vehicle/${vehicleId}`).then((rows) => rows.map((r) => coerceNumberFields(convertKeys<Expense>(r), ['amount'])));
+}
+
+export function getExpensesByCategory(category: string): Promise<Expense[]> {
+  return get<any[]>(`/expenses/category/${category}`).then((rows) => rows.map((r) => coerceNumberFields(convertKeys<Expense>(r), ['amount'])));
+}
+
+export function createExpense(data: Partial<Expense>): Promise<Expense> {
+  return post<any>('/expenses', data).then((r) => coerceNumberFields(convertKeys<Expense>(r), ['amount']));
+}
+
+export function updateExpense(id: string, data: Partial<Expense>): Promise<Expense> {
+  return patch<any>(`/expenses/${id}`, data).then((r) => coerceNumberFields(convertKeys<Expense>(r), ['amount']));
+}
+
+export function deleteExpense(id: string): Promise<void> {
+  return del(`/expenses/${id}`);
+}
+
+// ── Notifications ───────────────────────────────────────────────────────────
+
+export interface Notification {
+  id: string;
+  userId?: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'alert' | 'success';
+  category: string;
+  entityType?: string;
+  entityId?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export function getNotifications(): Promise<Notification[]> {
+  return get<any[]>('/notifications').then((rows) => rows.map((r) => convertKeys<Notification>(r)));
+}
+
+export function getUnreadNotificationCount(): Promise<number> {
+  return get<{ count: number }>('/notifications/unread-count').then((r) => r.count);
+}
+
+export function createNotification(data: Partial<Notification>): Promise<Notification> {
+  return post<any>('/notifications', data).then((r) => convertKeys<Notification>(r));
+}
+
+export function markNotificationRead(id: string): Promise<void> {
+  return patch(`/notifications/${id}/read`, {});
+}
+
+export function markAllNotificationsRead(): Promise<void> {
+  return patch('/notifications/read-all', {});
+}
+
+export function deleteNotification(id: string): Promise<void> {
+  return del(`/notifications/${id}`);
+}
+
+// ── Settings ────────────────────────────────────────────────────────────────
+
+export interface CompanySetting {
+  id: string;
+  key: string;
+  value: string;
+  category: string;
+  description: string;
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getSettings(): Promise<CompanySetting[]> {
+  return get<any[]>('/settings').then((rows) => rows.map((r) => convertKeys<CompanySetting>(r)));
+}
+
+export function getSetting(key: string): Promise<CompanySetting> {
+  return get<any>(`/settings/${key}`).then((r) => convertKeys<CompanySetting>(r));
+}
+
+export function updateSetting(key: string, data: { value: string }): Promise<CompanySetting> {
+  return patch<any>(`/settings/${key}`, data).then((r) => convertKeys<CompanySetting>(r));
+}
+
+export function createSetting(data: Partial<CompanySetting>): Promise<CompanySetting> {
+  return post<any>('/settings', data).then((r) => convertKeys<CompanySetting>(r));
+}
+
+// ── Spare Parts ─────────────────────────────────────────────────────────────
+
+export interface SparePart {
+  id: string;
+  name: string;
+  partNumber: string;
+  category: string;
+  quantity: number;
+  minQuantity: number;
+  unitCost: number;
+  supplier: string;
+  location: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getSpareParts(): Promise<SparePart[]> {
+  return get<any[]>('/spare-parts').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<SparePart>(r), ['unitCost'])));
+}
+
+export function getLowStockParts(): Promise<SparePart[]> {
+  return get<any[]>('/spare-parts/low-stock').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<SparePart>(r), ['unitCost'])));
+}
+
+export function createSparePart(data: Partial<SparePart>): Promise<SparePart> {
+  return post<any>('/spare-parts', data).then((r) => coerceNumberFields(convertKeys<SparePart>(r), ['unitCost']));
+}
+
+export function updateSparePart(id: string, data: Partial<SparePart>): Promise<SparePart> {
+  return patch<any>(`/spare-parts/${id}`, data).then((r) => coerceNumberFields(convertKeys<SparePart>(r), ['unitCost']));
+}
+
+export function deleteSparePart(id: string): Promise<void> {
+  return del(`/spare-parts/${id}`);
+}
+
+// ── Service Providers ───────────────────────────────────────────────────────
+
+export interface ServiceProvider {
+  id: string;
+  name: string;
+  type: string;
+  phone: string;
+  email: string;
+  address: string;
+  specialties: string;
+  rating: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getServiceProviders(): Promise<ServiceProvider[]> {
+  return get<any[]>('/service-providers').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<ServiceProvider>(r), ['rating'])));
+}
+
+export function createServiceProvider(data: Partial<ServiceProvider>): Promise<ServiceProvider> {
+  return post<any>('/service-providers', data).then((r) => coerceNumberFields(convertKeys<ServiceProvider>(r), ['rating']));
+}
+
+export function updateServiceProvider(id: string, data: Partial<ServiceProvider>): Promise<ServiceProvider> {
+  return patch<any>(`/service-providers/${id}`, data).then((r) => coerceNumberFields(convertKeys<ServiceProvider>(r), ['rating']));
+}
+
+export function deleteServiceProvider(id: string): Promise<void> {
+  return del(`/service-providers/${id}`);
 }

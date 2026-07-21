@@ -26,6 +26,14 @@ import searchRouter from './routes/search';
 import statsRouter from './routes/stats';
 import auditLogsRouter from './routes/audit-logs';
 import searchHistoryRouter from './routes/search-history';
+import assignmentsRouter from './routes/assignments';
+import workOrdersRouter from './routes/work-orders';
+import fuelRouter from './routes/fuel';
+import expensesRouter from './routes/expenses';
+import notificationsRouter from './routes/notifications';
+import settingsRouter from './routes/settings';
+import sparePartsRouter from './routes/spare-parts';
+import serviceProvidersRouter from './routes/service-providers';
 import { seedDefaultAdmin } from './auth';
 
 dotenv.config();
@@ -127,6 +135,14 @@ app.use('/api/search', searchRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/audit-logs', auditLogsRouter);
 app.use('/api/search-history', searchHistoryRouter);
+app.use('/api/assignments', assignmentsRouter);
+app.use('/api/work-orders', workOrdersRouter);
+app.use('/api/fuel', fuelRouter);
+app.use('/api/expenses', expensesRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/spare-parts', sparePartsRouter);
+app.use('/api/service-providers', serviceProvidersRouter);
 
 app.get('/api/health', async (_req, res) => {
   const isHealthy = await healthCheck();

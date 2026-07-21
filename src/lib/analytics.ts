@@ -3,6 +3,9 @@ import type {
   ServiceLog, BatteryLog, TyreLog, RevenueEntry,
   AccidentReport,
 } from '@/types/fleet';
+import type { Inspection } from '@/lib/apiClient';
+
+// ── Profitability ─────────────────────────────────────────────────────────────
 
 export interface ProfitabilityRow {
   vehicle: Vehicle;
@@ -73,6 +76,8 @@ export function calculateProfitability(
   }).sort((a, b) => b.netMargin - a.netMargin);
 }
 
+// ── Driver Scores (all real DB data) ──────────────────────────────────────────
+
 export interface DriverScore {
   driverId: string;
   driverName: string;
@@ -91,6 +96,7 @@ export function calculateDriverScores(
   supervisors: Supervisor[],
   revenueEntries: RevenueEntry[],
   accidentReports: AccidentReport[],
+  inspections: Inspection[],
 ): DriverScore[] {
   return drivers.map(driver => {
     const driverRevenue = revenueEntries
@@ -98,9 +104,18 @@ export function calculateDriverScores(
       .reduce((sum, r) => sum + r.amount, 0);
 
     const driverAccidents = accidentReports.filter(a => a.driverId === driver.id);
-    const accidentFreeRatio = driverAccidents.length === 0 ? 1 : 0;
+    const atFaultCount = driverAccidents.filter(a => a.driverAtFault).length;
+    // Graduated penalty: 0.1 deduction per at-fault accident, min 0
+    const accidentFreeRatio = driverAccidents.length === 0
+      ? 1
+      : Math.max(0, 1 - atFaultCount * 0.1);
 
-    const inspectionPassRate = 0.85 + (driver.id.charCodeAt(4) % 10) / 100;
+    // Real inspection pass rate from DB — inspections link to drivers by name
+    const driverInspections = inspections.filter(i => i.driverName === driver.fullName);
+    const passedCount = driverInspections.filter(i => i.overallStatus === 'pass').length;
+    const inspectionPassRate = driverInspections.length > 0
+      ? passedCount / driverInspections.length
+      : 0.5; // neutral default when no inspection data exists
 
     const revenueScore = Math.min(driverRevenue / 20000, 1) * 40;
     const inspectionScore = inspectionPassRate * 30;
@@ -109,10 +124,14 @@ export function calculateDriverScores(
 
     const sup = supervisors.find(s => s.id === driver.supervisorId);
 
-    const hasDataGaps = driverRevenue === 0;
+    const hasDataGaps = driverRevenue === 0 && driverInspections.length === 0;
     let dataGapNote = '';
-    if (hasDataGaps) {
+    if (driverRevenue === 0 && driverInspections.length === 0) {
+      dataGapNote = 'No revenue or inspection records for this driver';
+    } else if (driverRevenue === 0) {
       dataGapNote = 'No revenue records for this driver';
+    } else if (driverInspections.length === 0) {
+      dataGapNote = 'No inspection records — default pass rate used';
     }
 
     return {
@@ -130,6 +149,8 @@ export function calculateDriverScores(
   }).sort((a, b) => b.score - a.score);
 }
 
+// ── Supervisor Teams (trend computed from real driver scores) ─────────────────
+
 export interface SupervisorTeamRow {
   supervisorId: string;
   supervisorName: string;
@@ -146,23 +167,55 @@ export function calculateSupervisorTeams(
   supervisors: Supervisor[],
   revenueEntries: RevenueEntry[],
   accidentReports: AccidentReport[],
+  inspections: Inspection[],
 ): SupervisorTeamRow[] {
-  const driverScores = calculateDriverScores(drivers, supervisors, revenueEntries, accidentReports);
+  const driverScores = calculateDriverScores(drivers, supervisors, revenueEntries, accidentReports, inspections);
 
   return supervisors.map(sup => {
-    const teamDriverScores = driverScores.filter(ds => {
-      const driver = drivers.find(d => d.id === ds.driverId);
-      return driver?.supervisorId === sup.id;
-    });
+    const teamDrivers = drivers.filter(d => d.supervisorId === sup.id);
+    const teamDriverScores = driverScores.filter(ds =>
+      teamDrivers.some(d => d.id === ds.driverId)
+    );
 
     const teamSize = teamDriverScores.length;
     const avgScore = teamSize > 0
       ? Math.round(teamDriverScores.reduce((sum, ds) => sum + ds.score, 0) / teamSize)
       : 0;
 
-    const trendSeed = sup.id.charCodeAt(4) % 3;
-    const trend: 'up' | 'down' | 'stable' = trendSeed === 0 ? 'up' : trendSeed === 1 ? 'down' : 'stable';
-    const trendLabel = trend === 'up' ? 'Improving' : trend === 'down' ? 'Declining' : 'Stable';
+    // Trend: compare "recent" half vs "older" half by hire date
+    let trend: 'up' | 'down' | 'stable' = 'stable';
+    let trendLabel = 'Stable';
+    if (teamSize >= 2) {
+      const sorted = [...teamDrivers].sort(
+        (a, b) => new Date(b.hireDate).getTime() - new Date(a.hireDate).getTime()
+      );
+      const mid = Math.ceil(sorted.length / 2);
+      const recentDrivers = sorted.slice(0, mid);
+      const olderDrivers = sorted.slice(mid);
+
+      const recentScores = driverScores.filter(ds =>
+        recentDrivers.some(d => d.id === ds.driverId)
+      );
+      const olderScores = driverScores.filter(ds =>
+        olderDrivers.some(d => d.id === ds.driverId)
+      );
+
+      const recentAvg = recentScores.length > 0
+        ? recentScores.reduce((s, ds) => s + ds.score, 0) / recentScores.length
+        : 0;
+      const olderAvg = olderScores.length > 0
+        ? olderScores.reduce((s, ds) => s + ds.score, 0) / olderScores.length
+        : avgScore;
+
+      const delta = recentAvg - olderAvg;
+      if (delta > 3) {
+        trend = 'up';
+        trendLabel = 'Improving';
+      } else if (delta < -3) {
+        trend = 'down';
+        trendLabel = 'Declining';
+      }
+    }
 
     const hasDataGaps = teamDriverScores.some(ds => ds.hasDataGaps);
 
@@ -179,6 +232,8 @@ export function calculateSupervisorTeams(
   }).sort((a, b) => b.avgScore - a.avgScore);
 }
 
+// ── Decision Insights (computed from real data) ───────────────────────────────
+
 export interface InsightCard {
   title: string;
   insight: string;
@@ -186,31 +241,143 @@ export interface InsightCard {
   confidence: 'high' | 'medium' | 'low';
 }
 
-export function generateDecisionInsights(): InsightCard[] {
-  return [
-    {
-      title: 'Service Interval Impact',
-      insight: 'Vehicles serviced every 5,000 km show ~12% higher resale valuations than those serviced every 10,000 km.',
-      detail: 'Based on 6 vehicles with service records and matching valuations. Vehicles with >3 service logs retain value better.',
-      confidence: 'medium',
-    },
-    {
-      title: 'Tyre Brand Correlation',
-      insight: 'Michelin and Bridgestone tyres last ~30% longer than budget brands, reducing annual tyre cost by ~18%.',
-      detail: 'Comparison across 8 tyre log entries. Premium brands show longer replacement intervals.',
-      confidence: 'medium',
-    },
-    {
-      title: 'Driver Reassignment Frequency',
-      insight: 'Vehicles with frequent driver changes (3+ per year) show 22% higher accident rates.',
-      detail: 'Correlation based on 2 accident reports across the fleet. More data needed for statistical significance.',
+export function generateDecisionInsights(
+  vehicles: Vehicle[],
+  serviceLogs: ServiceLog[],
+  batteryLogs: BatteryLog[],
+  tyreLogs: TyreLog[],
+  revenueEntries: RevenueEntry[],
+  accidentReports: AccidentReport[],
+): InsightCard[] {
+  const insights: InsightCard[] = [];
+
+  // Insight 1: Service cost concentration
+  if (serviceLogs.length >= 2) {
+    const totalServiceCost = serviceLogs.reduce((s, l) => s + l.cost, 0);
+    const avgServiceCost = totalServiceCost / serviceLogs.length;
+    const expensiveLogs = serviceLogs.filter(l => l.cost > avgServiceCost * 1.5);
+    if (expensiveLogs.length > 0) {
+      const expensiveVehicles = [...new Set(expensiveLogs.map(l => l.vehicleId))];
+      insights.push({
+        title: 'High-Cost Services',
+        insight: `${expensiveLogs.length} service entries cost 50%+ above average (GH₵ ${avgServiceCost.toFixed(0)} avg). ${expensiveVehicles.length} vehicle(s) account for most overages.`,
+        detail: `Total service spend: GH₵ ${totalServiceCost.toLocaleString()} across ${serviceLogs.length} entries. Review expensive services for potential negotiation with workshops.`,
+        confidence: 'high',
+      });
+    }
+  }
+
+  // Insight 2: Tyre brand cost comparison
+  if (tyreLogs.length >= 3) {
+    const brandCosts = new Map<string, { total: number; count: number }>();
+    tyreLogs.forEach(t => {
+      const existing = brandCosts.get(t.brand) || { total: 0, count: 0 };
+      brandCosts.set(t.brand, { total: existing.total + t.cost, count: existing.count + 1 });
+    });
+    const brandAvg = [...brandCosts.entries()].map(([brand, data]) => ({
+      brand,
+      avg: data.total / data.count,
+      count: data.count,
+    })).filter(b => b.count >= 2);
+
+    if (brandAvg.length >= 2) {
+      brandAvg.sort((a, b) => a.avg - b.avg);
+      const cheapest = brandAvg[0];
+      const priciest = brandAvg[brandAvg.length - 1];
+      const savingsPct = ((priciest.avg - cheapest.avg) / priciest.avg * 100).toFixed(0);
+      insights.push({
+        title: 'Tyre Brand Cost Gap',
+        insight: `${cheapest.brand} tyres average GH₵ ${cheapest.avg.toFixed(0)} per unit vs ${priciest.brand} at GH₵ ${priciest.avg.toFixed(0)} — a ${savingsPct}% difference.`,
+        detail: `Based on ${tyreLogs.length} tyre entries across ${brandCosts.size} brands. Switching to lower-cost brands could reduce annual tyre spend.`,
+        confidence: 'medium',
+      });
+    }
+  }
+
+  // Insight 3: Accident cost impact
+  if (accidentReports.length > 0) {
+    const totalAccidentCost = accidentReports.reduce((s, a) => s + a.cost, 0);
+    const atFaultCount = accidentReports.filter(a => a.driverAtFault).length;
+    const atFaultCost = accidentReports.filter(a => a.driverAtFault).reduce((s, a) => s + a.cost, 0);
+    const totalRevenue = revenueEntries.reduce((s, r) => s + r.amount, 0);
+    const accidentPctOfRevenue = totalRevenue > 0
+      ? ((totalAccidentCost / totalRevenue) * 100).toFixed(1)
+      : 'N/A';
+
+    insights.push({
+      title: 'Accident Financial Impact',
+      insight: `${accidentReports.length} accident(s) cost GH₵ ${totalAccidentCost.toLocaleString()} total (${accidentPctOfRevenue}% of revenue). ${atFaultCount} were at-fault costing GH₵ ${atFaultCost.toLocaleString()}.`,
+      detail: atFaultCount > 0
+        ? `At-fault accidents represent ${((atFaultCost / totalAccidentCost) * 100).toFixed(0)}% of total accident costs. Driver training may reduce preventable incidents.`
+        : 'All accidents were not at-fault — review external factors and route conditions.',
+      confidence: 'high',
+    });
+  }
+
+  // Insight 4: Battery lifecycle by brand
+  if (batteryLogs.length >= 2) {
+    const batteryBrands = new Map<string, { count: number; replaced: number }>();
+    batteryLogs.forEach(b => {
+      const existing = batteryBrands.get(b.brand) || { count: 0, replaced: 0 };
+      batteryBrands.set(b.brand, {
+        count: existing.count + 1,
+        replaced: existing.replaced + (b.replacementDate ? 1 : 0),
+      });
+    });
+    const brandData = [...batteryBrands.entries()].filter(([, d]) => d.count >= 2);
+    if (brandData.length > 0) {
+      const worstBrand = brandData.sort(
+        (a, b) => (b[1].replaced / b[1].count) - (a[1].replaced / a[1].count)
+      )[0];
+      const failRate = ((worstBrand[1].replaced / worstBrand[1].count) * 100).toFixed(0);
+      insights.push({
+        title: 'Battery Replacement Rate',
+        insight: `${worstBrand[0]} batteries have a ${failRate}% replacement rate (${worstBrand[1].replaced}/${worstBrand[1].count}). Consider alternative suppliers for better longevity.`,
+        detail: `Based on ${batteryLogs.length} battery installations. Track replacement dates to identify brands with best lifecycle value.`,
+        confidence: worstBrand[1].count >= 4 ? 'medium' : 'low',
+      });
+    }
+  }
+
+  // Insight 5: Fleet revenue distribution
+  if (revenueEntries.length >= 3 && vehicles.length >= 2) {
+    const vehicleRevenue = vehicles.map(v => ({
+      vehicle: v,
+      revenue: revenueEntries.filter(r => r.vehicleId === v.id).reduce((s, r) => s + r.amount, 0),
+      trips: revenueEntries.filter(r => r.vehicleId === v.id).length,
+    })).filter(v => v.revenue > 0).sort((a, b) => b.revenue - a.revenue);
+
+    if (vehicleRevenue.length >= 2) {
+      const topRevenue = vehicleRevenue[0].revenue;
+      const bottomRevenue = vehicleRevenue[vehicleRevenue.length - 1].revenue;
+      const ratio = bottomRevenue > 0 ? (topRevenue / bottomRevenue).toFixed(1) : '∞';
+      insights.push({
+        title: 'Revenue Imbalance',
+        insight: `Top earner ${vehicleRevenue[0].vehicle.plateNumber} generates GH₵ ${topRevenue.toLocaleString()} — ${ratio}x more than lowest earner ${vehicleRevenue[vehicleRevenue.length - 1].vehicle.plateNumber} (GH₵ ${bottomRevenue.toLocaleString()}).`,
+        detail: `Across ${vehicleRevenue.length} revenue-generating vehicles. Reassign drivers or routes to balance utilization and maximize fleet output.`,
+        confidence: 'medium',
+      });
+    }
+  }
+
+  // Fill with contextual fallback insights if fewer than 3
+  if (insights.length === 0) {
+    insights.push({
+      title: 'Getting Started',
+      insight: 'Add service logs, tyre changes, and revenue entries to unlock data-driven fleet insights.',
+      detail: 'The more data you record, the more actionable insights the analytics engine can generate for your fleet.',
       confidence: 'low',
-    },
-    {
-      title: 'Battery Lifecycle',
-      insight: 'Bosch batteries in newer vehicles show no replacements yet (under 12 months). Exide batteries average 18-month lifespan.',
-      detail: 'Sample size: 6 battery installations. Long-term data still accumulating.',
+    });
+  }
+
+  if (insights.length < 3) {
+    insights.push({
+      title: 'Data Coverage',
+      insight: `${serviceLogs.length} service logs, ${tyreLogs.length} tyre entries, ${batteryLogs.length} battery records, and ${accidentReports.length} accidents on file.`,
+      detail: 'Consistent data entry across all categories improves insight accuracy and confidence levels.',
       confidence: 'low',
-    },
-  ];
+    });
+  }
+
+  return insights;
 }

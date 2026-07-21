@@ -62,6 +62,70 @@ router.get(
   })
 );
 
+// GET /api/drivers/:id/profile — full driver profile with all related data
+router.get(
+  '/:id/profile',
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    const driverId = req.params.id;
+
+    const driver = await queryOne(
+      `SELECT ${COLUMNS_SQL} FROM drivers WHERE id = $1 AND deleted_at IS NULL`,
+      [driverId]
+    );
+    if (!driver) {
+      res.status(404).json({ error: 'Driver not found' });
+      return;
+    }
+
+    const [supervisor, assignedVehicle, inspections, revenueList, accidentReports, revenueAgg] = await Promise.all([
+      // Supervisor info
+      queryOne<{ id: string; full_name: string; phone: string; region: string }>(
+        `SELECT id, full_name, phone, region FROM supervisors WHERE id = $1 AND deleted_at IS NULL`,
+        [driver.supervisor_id]
+      ),
+      // Assigned vehicle
+      queryOne<{ id: string; plate_number: string; make: string; model: string; year: number; status: string }>(
+        `SELECT id, plate_number, make, model, year, status FROM vehicles WHERE current_driver_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+        [driverId]
+      ),
+      // Inspections where this driver participated
+      query<{ id: string; vehicle_id: string; inspection_date: string; overall_status: string; notes: string; photo_count: number }>(
+        `SELECT id, vehicle_id, inspection_date, overall_status, notes, photo_count FROM inspections WHERE driver_name = $1 ORDER BY inspection_date DESC LIMIT 20`,
+        [driver.full_name]
+      ),
+      // Revenue entries
+      query<{ id: string; vehicle_id: string; trip_date: string; trip_reference: string; route: string; client: string; amount: string }>(
+        `SELECT id, vehicle_id, trip_date, trip_reference, route, client, amount FROM revenue_entries WHERE driver_id = $1 ORDER BY trip_date DESC LIMIT 20`,
+        [driverId]
+      ),
+      // Accident reports
+      query<{ id: string; vehicle_id: string; accident_date: string; description: string; cost: string; driver_at_fault: boolean }>(
+        `SELECT id, vehicle_id, accident_date, description, cost, driver_at_fault FROM accident_reports WHERE driver_id = $1 ORDER BY accident_date DESC`,
+        [driverId]
+      ),
+      // Total revenue and trip count
+      queryOne<{ total: string; count: string }>(
+        `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count FROM revenue_entries WHERE driver_id = $1`,
+        [driverId]
+      ),
+    ]);
+
+    res.json({
+      driver,
+      supervisor: supervisor ? { id: supervisor.id, fullName: supervisor.full_name, phone: supervisor.phone, region: supervisor.region } : null,
+      assignedVehicle: assignedVehicle ? { id: assignedVehicle.id, plateNumber: assignedVehicle.plate_number, make: assignedVehicle.make, model: assignedVehicle.model, year: assignedVehicle.year, status: assignedVehicle.status } : null,
+      inspections: inspections.map(i => ({ id: i.id, vehicleId: i.vehicle_id, inspectionDate: i.inspection_date, overallStatus: i.overall_status, notes: i.notes, photoCount: i.photo_count })),
+      revenue: {
+        total: parseFloat(revenueAgg?.total || '0'),
+        trips: parseInt(revenueAgg?.count || '0', 10),
+        entries: revenueList.map(r => ({ id: r.id, vehicleId: r.vehicle_id, tripDate: r.trip_date, tripReference: r.trip_reference, route: r.route, client: r.client, amount: parseFloat(r.amount) })),
+      },
+      accidents: accidentReports.map(a => ({ id: a.id, vehicleId: a.vehicle_id, accidentDate: a.accident_date, description: a.description, cost: parseFloat(a.cost), driverAtFault: a.driver_at_fault })),
+    });
+  })
+);
+
 // POST /api/drivers — create driver
 router.post(
   '/',

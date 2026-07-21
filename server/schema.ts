@@ -321,7 +321,8 @@ export async function initializeSchema(): Promise<void> {
     'admin_users', 'supervisors', 'drivers', 'vehicles',
     'vehicle_documents', 'service_logs', 'battery_logs', 'tyre_logs',
     'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
-    'inspections',
+    'inspections', 'vehicle_assignments', 'work_orders', 'fuel_entries',
+    'expenses', 'company_settings', 'spare_parts', 'service_providers',
   ];
   const softDeleteTables = ['supervisors', 'drivers', 'vehicles'];
 
@@ -355,6 +356,138 @@ export async function initializeSchema(): Promise<void> {
   await run(`
     ALTER TABLE drivers ADD COLUMN IF NOT EXISTS photo_object_key TEXT;
   `, 'migrate drivers.photo_object_key');
+
+  // New fleet management tables
+  await run(`
+    CREATE TABLE IF NOT EXISTS vehicle_assignments (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      driver_id TEXT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      purpose TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','completed','cancelled')),
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table vehicle_assignments');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS work_orders (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low','medium','high','urgent')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','in_progress','completed','cancelled')),
+      assigned_to TEXT DEFAULT '',
+      estimated_cost NUMERIC DEFAULT 0 CHECK (estimated_cost >= 0),
+      actual_cost NUMERIC DEFAULT 0 CHECK (actual_cost >= 0),
+      due_date TEXT,
+      completed_date TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table work_orders');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS fuel_entries (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      driver_id TEXT REFERENCES drivers(id) ON DELETE SET NULL,
+      fuel_date TEXT NOT NULL,
+      station TEXT NOT NULL DEFAULT '',
+      fuel_type TEXT NOT NULL DEFAULT 'diesel',
+      liters NUMERIC NOT NULL CHECK (liters > 0),
+      cost_per_liter NUMERIC NOT NULL CHECK (cost_per_liter > 0),
+      total_cost NUMERIC NOT NULL CHECK (total_cost >= 0),
+      mileage_km INTEGER,
+      fuel_card TEXT DEFAULT '',
+      receipt_number TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table fuel_entries');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT REFERENCES vehicles(id) ON DELETE SET NULL,
+      driver_id TEXT REFERENCES drivers(id) ON DELETE SET NULL,
+      category TEXT NOT NULL CHECK (category IN ('fuel','maintenance','insurance','registration','repairs','salary','toll','parking','fine','other')),
+      description TEXT NOT NULL,
+      amount NUMERIC NOT NULL CHECK (amount >= 0),
+      expense_date TEXT NOT NULL,
+      receipt_url TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      approved_by TEXT,
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table expenses');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES admin_users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'info' CHECK (type IN ('info','warning','alert','success')),
+      category TEXT NOT NULL DEFAULT 'general',
+      entity_type TEXT,
+      entity_id TEXT,
+      is_read BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table notifications');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS company_settings (
+      id TEXT PRIMARY KEY,
+      key TEXT NOT NULL UNIQUE,
+      value TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'general',
+      description TEXT DEFAULT '',
+      updated_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table company_settings');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS spare_parts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      part_number TEXT DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'general',
+      quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+      min_quantity INTEGER NOT NULL DEFAULT 0 CHECK (min_quantity >= 0),
+      unit_cost NUMERIC NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+      supplier TEXT DEFAULT '',
+      location TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table spare_parts');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS service_providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'workshop' CHECK (type IN ('workshop','dealer','tow','parts_store','other')),
+      phone TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      specialties TEXT DEFAULT '',
+      rating NUMERIC DEFAULT 0,
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table service_providers');
 
   // Indexes — batch into one statement per logical group
   await run(`
@@ -422,12 +555,28 @@ export async function initializeSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_events_data ON events USING GIN(data);
   `, 'indexes batch 6 (misc)');
 
+  await run(`
+    CREATE INDEX IF NOT EXISTS idx_assignments_vehicle ON vehicle_assignments(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_assignments_driver ON vehicle_assignments(driver_id);
+    CREATE INDEX IF NOT EXISTS idx_assignments_status ON vehicle_assignments(status);
+    CREATE INDEX IF NOT EXISTS idx_work_orders_vehicle ON work_orders(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);
+    CREATE INDEX IF NOT EXISTS idx_fuel_vehicle ON fuel_entries(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_fuel_date ON fuel_entries(fuel_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_expenses_vehicle ON expenses(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+    CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+    CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+  `, 'indexes batch 7 (new tables)');
+
   // Triggers — updated_at for all tables + audit for select tables
   const allTables = [
     'admin_users', 'supervisors', 'drivers', 'vehicles',
     'vehicle_documents', 'service_logs', 'battery_logs', 'tyre_logs',
     'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
-    'inspections',
+    'inspections', 'vehicle_assignments', 'work_orders', 'fuel_entries',
+    'expenses', 'company_settings', 'spare_parts', 'service_providers',
   ];
   const auditTables = ['admin_users', 'drivers', 'vehicles', 'vehicle_documents', 'accident_reports'];
 

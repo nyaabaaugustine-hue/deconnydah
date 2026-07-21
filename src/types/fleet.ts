@@ -86,7 +86,9 @@ export interface VehiclePhoto {
   category: string;
   caption: string;
   takenAt: string;
-  imageUrl: string;
+  imageUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Valuation {

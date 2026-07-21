@@ -15,6 +15,13 @@ import {
   Award,
   CheckCircle2,
   Star,
+  Truck,
+  MapPin,
+  DollarSign,
+  ClipboardCheck,
+  AlertOctagon,
+  FileText,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,10 +35,12 @@ import {
   createDriver,
   updateDriver,
   deleteDriver,
+  getDriverProfile,
   canWrite,
   canDelete,
 } from '@/lib/apiClient';
 import type { Driver } from '@/types/fleet';
+import type { DriverProfile } from '@/lib/apiClient';
 
 const statusConfig: Record<string, { label: string; dot: string; gradient: string; icon: typeof CheckCircle2 }> = {
   active: { label: 'Active', dot: 'bg-emerald-500', gradient: 'from-emerald-500/20 via-emerald-500/10 to-transparent', icon: CheckCircle2 },
@@ -49,6 +58,7 @@ export function DriverManagement({ role }: { role: string }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [profileDriverId, setProfileDriverId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -221,14 +231,14 @@ export function DriverManagement({ role }: { role: string }) {
                     
                     <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3 pt-5 px-5">
                       <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center font-bold text-lg border-2 border-slate-200 dark:border-slate-700 group-hover:border-emerald-200 dark:group-hover:border-emerald-800 transition-colors duration-300">
+                        <button onClick={() => setProfileDriverId(driver.id)} className="relative group/avatar" title="View full profile">
+                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center font-bold text-lg border-2 border-slate-200 dark:border-slate-700 group-hover:border-emerald-200 dark:group-hover:border-emerald-800 transition-colors duration-300 cursor-pointer hover:ring-2 hover:ring-emerald-500/30">
                             <span className="text-slate-700 dark:text-slate-300">{initials}</span>
                           </div>
                           <span className={cn('absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-[3px] border-white dark:border-slate-900', cfg.dot)} />
-                        </div>
-                        <div>
-                          <CardTitle className="text-base font-bold text-slate-900 dark:text-white">{driver.fullName}</CardTitle>
+                        </button>
+                        <div className="cursor-pointer" onClick={() => setProfileDriverId(driver.id)}>
+                          <CardTitle className="text-base font-bold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">{driver.fullName}</CardTitle>
                           <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 font-mono">{driver.licenseNumber}</p>
                         </div>
                       </div>
@@ -318,6 +328,11 @@ export function DriverManagement({ role }: { role: string }) {
           onSave={handleSave}
           onClose={() => { setIsModalOpen(false); setEditingDriver(null); }}
         />
+      )}
+
+      {/* ── Profile Modal ──────────────────────────────────────────────────── */}
+      {profileDriverId && (
+        <DriverProfileModal driverId={profileDriverId} onClose={() => setProfileDriverId(null)} />
       )}
     </div>
   );
@@ -475,6 +490,305 @@ function DriverFormModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Driver Profile Modal ─────────────────────────────────────────────────────
+
+function DriverProfileModal({ driverId, onClose }: { driverId: string; onClose: () => void }) {
+  const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('overview');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await getDriverProfile(driverId);
+        if (!cancelled) {
+          if (data) setProfile(data);
+          else setError('Driver not found');
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err.message || 'Failed to load profile');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [driverId]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={onClose}>
+        <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+          <p className="text-sm text-white font-medium">Loading driver profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={onClose}>
+        <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-4">
+          <AlertTriangle className="w-8 h-8 text-red-400" />
+          <p className="text-sm text-white font-medium">{error || 'Driver not found'}</p>
+          <Button variant="outline" onClick={onClose} className="rounded-xl">Close</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const { driver, supervisor, assignedVehicle, inspections, revenue, accidents } = profile;
+  const statusCfg: Record<string, { label: string; color: string; dot: string }> = {
+    active: { label: 'Active', color: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800', dot: 'bg-emerald-500' },
+    on_leave: { label: 'On Leave', color: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800', dot: 'bg-amber-500' },
+    inactive: { label: 'Inactive', color: 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700', dot: 'bg-slate-400' },
+    terminated: { label: 'Terminated', color: 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/50 border-red-200 dark:border-red-800', dot: 'bg-red-500' },
+  };
+  const scfg = statusCfg[driver.status] || statusCfg.active;
+  const initials = driver.fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const totalAccidentCost = accidents.reduce((s, a) => s + a.cost, 0);
+  const passCount = inspections.filter(i => i.overallStatus === 'pass').length;
+  const inspectionPassRate = inspections.length > 0 ? Math.round((passCount / inspections.length) * 100) : null;
+
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'inspections', label: `Inspections (${inspections.length})` },
+    { id: 'revenue', label: `Revenue (${revenue.entries.length})` },
+    { id: 'accidents', label: `Accidents (${accidents.length})` },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300" onClick={onClose}>
+      <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]" onClick={(e) => e.stopPropagation()}>
+        <div className="p-[1px] rounded-2xl bg-gradient-to-br from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-2xl shadow-black/20">
+          <div className="rounded-2xl bg-white dark:bg-slate-900 overflow-hidden shadow-inner flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="relative overflow-hidden">
+              <div className="h-24 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950" />
+              <div className="absolute inset-0 opacity-[0.08] bg-[radial-gradient(circle_at_30_40%,white,transparent_50%)]" />
+              <div className="relative px-6 -mt-10 pb-4 flex items-end justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center text-2xl font-bold border-4 border-white dark:border-slate-900 shadow-xl">
+                    <span className="text-slate-700 dark:text-slate-300">{initials}</span>
+                  </div>
+                  <div className="pb-1">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{driver.fullName}</h2>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border shadow-sm', scfg.color)}>
+                        <span className={cn('w-1.5 h-1.5 rounded-full', scfg.dot)} />
+                        {scfg.label}
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">{driver.licenseNumber}</span>
+                    </div>
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={onClose} className="h-9 w-9 p-0 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 mb-1">
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="px-6 border-b border-slate-100 dark:border-slate-800 flex gap-1 overflow-x-auto">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'px-4 py-3 text-xs font-semibold border-b-2 transition-all duration-200 whitespace-nowrap',
+                    activeTab === tab.id
+                      ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {activeTab === 'overview' && (
+                <>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">Personal Details</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <ProfileField icon={Phone} label="Phone" value={driver.phone} />
+                      <ProfileField icon={Calendar} label="Hire Date" value={new Date(driver.hireDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} />
+                      <ProfileField icon={ShieldCheck} label="License" value={driver.licenseNumber} />
+                    </div>
+                  </div>
+
+                  {supervisor && (
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">Supervisor</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <ProfileField icon={User} label="Name" value={supervisor.fullName} />
+                        <ProfileField icon={Phone} label="Phone" value={supervisor.phone} />
+                        <ProfileField icon={MapPin} label="Region" value={supervisor.region} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">Assigned Vehicle</h3>
+                    {assignedVehicle ? (
+                      <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-emerald-50/50 dark:from-emerald-950/30 dark:to-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                          <Truck className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">{assignedVehicle.plateNumber}</p>
+                          <p className="text-xs text-slate-500">{assignedVehicle.year} {assignedVehicle.make} {assignedVehicle.model}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400 italic">No vehicle currently assigned</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">Summary</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Total Revenue</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">GH₵ {revenue.total.toLocaleString()}</p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Total Trips</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{revenue.trips}</p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Inspection Pass</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">
+                          {inspectionPassRate !== null ? `${inspectionPassRate}%` : '—'}
+                        </p>
+                        <p className="text-[10px] text-slate-400">{passCount}/{inspections.length} passed</p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Accidents</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{accidents.length}</p>
+                        <p className="text-[10px] text-slate-400">GH₵ {totalAccidentCost.toLocaleString()} cost</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {activeTab === 'inspections' && (
+                <div>
+                  {inspections.length === 0 ? (
+                    <EmptyState icon={ClipboardCheck} message="No inspections on record" />
+                  ) : (
+                    <div className="space-y-2">
+                      {inspections.map(insp => {
+                        const inspCfg = insp.overallStatus === 'pass' ? { color: 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/50 dark:border-emerald-800', icon: CheckCircle2 }
+                          : insp.overallStatus === 'fail' ? { color: 'text-red-700 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-950/50 dark:border-red-800', icon: AlertOctagon }
+                          : { color: 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-950/50 dark:border-amber-800', icon: AlertTriangle };
+                        const InspIcon = inspCfg.icon;
+                        return (
+                          <div key={insp.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex items-center gap-3">
+                              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center border shadow-sm', inspCfg.color)}>
+                                <InspIcon className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{new Date(insp.inspectionDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                                <p className="text-xs text-slate-400 font-mono">{insp.id.slice(0, 8)}</p>
+                              </div>
+                            </div>
+                            <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-md border', inspCfg.color)}>{insp.overallStatus}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'revenue' && (
+                <div>
+                  {revenue.entries.length === 0 ? (
+                    <EmptyState icon={DollarSign} message="No revenue entries on record" />
+                  ) : (
+                    <div className="space-y-2">
+                      {revenue.entries.map(entry => (
+                        <div key={entry.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+                              <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{entry.route}</p>
+                              <p className="text-xs text-slate-400">{entry.client} • {new Date(entry.tripDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">GH₵ {entry.amount.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'accidents' && (
+                <div>
+                  {accidents.length === 0 ? (
+                    <EmptyState icon={ShieldCheck} message="No accident reports on file" />
+                  ) : (
+                    <div className="space-y-2">
+                      {accidents.map(acc => (
+                        <div key={acc.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                              {new Date(acc.accidentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {acc.driverAtFault && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">At Fault</span>
+                              )}
+                              <span className="text-sm font-bold text-red-600 dark:text-red-400">GH₵ {acc.cost.toLocaleString()}</span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{acc.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileField({ icon: Icon, label, value }: { icon: typeof Phone; label: string; value: string }) {
+  return (
+    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 shadow-sm">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="w-3.5 h-3.5 text-slate-400" />
+        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{value}</p>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, message }: { icon: typeof Users; message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12">
+      <Icon className="w-10 h-10 text-slate-300 dark:text-slate-600 mb-2" />
+      <p className="text-sm text-slate-400">{message}</p>
     </div>
   );
 }

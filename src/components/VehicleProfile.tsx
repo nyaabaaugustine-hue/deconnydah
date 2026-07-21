@@ -50,8 +50,8 @@ import type {
   VehiclePhoto,
   Valuation,
   VehicleStatus,
-  Inspection as FleetInspection,
 } from '@/types/fleet';
+import type { Inspection as FleetInspection } from '@/lib/apiClient';
 
 const categories = [
   { id: 'overview', label: 'Overview', icon: Truck },
