@@ -34,5 +34,9 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 
+# Stale compiled server files (only .ts sources should exist)
+server/**/*.js
+server/**/*.d.ts
+
 # Stray Windows artifact (created by an accidental `> nul` redirect in a shell)
 nul
