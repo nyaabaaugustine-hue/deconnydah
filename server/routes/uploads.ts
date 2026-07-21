@@ -1,53 +1,59 @@
-import crypto from 'crypto';
 import { Router } from 'express';
-import { requireAuth } from '../auth';
 import { asyncHandler } from '../validate';
+import { requireAuth } from '../auth';
+import { storageService, StorageValidationError, type UploadKind } from '../storage/storage.service';
 
 const router = Router();
 router.use(requireAuth);
 
+const VALID_KINDS: UploadKind[] = ['photo', 'avatar', 'document'];
+
 /**
- * POST /api/uploads/cloudinary-signature
+ * POST /api/uploads/presign
  *
- * Returns a signed set of params the browser can use to upload an image
- * directly to Cloudinary. The API secret NEVER leaves this server — only the
- * (non-secret) API key, cloud name, timestamp, and a signature computed from
- * them are sent back. This is Cloudinary's recommended signed-upload pattern
- * for browser uploads: https://cloudinary.com/documentation/signatures
+ * Two-step upload pattern (same shape the app used with Cloudinary, now backed
+ * by MinIO): the server never sees the file's bytes. It validates the request
+ * and hands back a short-lived presigned URL; the browser then PUTs the raw
+ * file directly to that URL. Once that succeeds, the client calls the normal
+ * POST /api/photos, /api/documents, or PATCH /api/drivers/:id endpoint with
+ * the returned objectKey/bucket (and publicUrl, for photos/avatars) to save
+ * the metadata row.
+ *
+ * body: { kind: 'photo' | 'avatar' | 'document', fileName: string, contentType: string, sizeBytes?: number }
  */
 router.post(
-  '/cloudinary-signature',
+  '/presign',
   asyncHandler(async (req, res) => {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const { kind, fileName, contentType, sizeBytes } = req.body ?? {};
 
-    if (!cloudName || !apiKey || !apiSecret) {
-      res.status(503).json({
-        error: 'Cloudinary is not configured on the server. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in .env.',
-      });
+    if (!VALID_KINDS.includes(kind)) {
+      res.status(400).json({ error: `kind must be one of: ${VALID_KINDS.join(', ')}` });
+      return;
+    }
+    if (!fileName || typeof fileName !== 'string') {
+      res.status(400).json({ error: 'fileName is required' });
+      return;
+    }
+    if (!contentType || typeof contentType !== 'string') {
+      res.status(400).json({ error: 'contentType is required' });
       return;
     }
 
-    const folder = typeof req.body?.folder === 'string' && req.body.folder ? req.body.folder : 'driver-avatars';
-    const timestamp = Math.round(Date.now() / 1000);
-
-    // Cloudinary signing rule: alphabetically-sorted params as key=value pairs
-    // joined with '&', with the api_secret appended (no separator), then SHA-1 hex.
-    const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
-    const signature = crypto
-      .createHash('sha1')
-      .update(paramsToSign + apiSecret)
-      .digest('hex');
-
-    res.json({
-      cloudName,
-      apiKey,
-      timestamp,
-      folder,
-      signature,
-      uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-    });
+    try {
+      const result = await storageService.presignUpload({
+        kind,
+        fileName,
+        contentType,
+        sizeBytes: typeof sizeBytes === 'number' ? sizeBytes : undefined,
+      });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof StorageValidationError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
   })
 );
 
