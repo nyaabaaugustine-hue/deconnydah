@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
-import { minioProvider } from './minio.provider';
-import type { PresignedUpload } from './storage.interface';
+import { minioProvider } from './minio.provider.js';
+import type { PresignedUpload } from './storage.interface.js';
 
 export const DOCUMENTS_BUCKET = 'fleet-documents';
 export const PHOTOS_BUCKET = 'fleet-media';

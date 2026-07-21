@@ -1,9 +1,9 @@
 import crypto from 'crypto';
 import { Router } from 'express';
-import { queryOne, query } from '../db';
-import { verifyPassword, generateToken, authenticateRequest, hashPassword, requireAuth, requireRole, invalidateAuthCache } from '../auth';
-import { asyncHandler } from '../validate';
-import type { UserRole } from '../auth';
+import { queryOne, query } from '../db.js';
+import { verifyPassword, generateToken, authenticateRequest, hashPassword, requireAuth, requireRole, invalidateAuthCache } from '../auth.js';
+import { asyncHandler } from '../validate.js';
+import type { UserRole } from '../auth.js';
 
 const router = Router();
 

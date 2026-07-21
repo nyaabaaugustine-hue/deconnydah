@@ -13,4 +13,4 @@ export type {
   VehiclePhoto,
   Valuation,
   Vehicle,
-} from '../src/types/fleet';
+} from '../src/types/fleet.js';

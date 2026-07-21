@@ -1,4 +1,4 @@
-import { pool, execute } from './db';
+import { pool, execute } from './db.js';
 
 // Bump this whenever the schema changes.  initializeSchema() checks this
 // against the `schema_migrations` table — if the row already exists, the

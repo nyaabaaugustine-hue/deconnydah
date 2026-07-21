@@ -10,8 +10,8 @@
  * after it, so the schema/tables exist — this script also calls
  * initializeSchema() itself first, so it's safe to run standalone too.)
  */
-import { execute, closePool } from './db';
-import { initializeSchema } from './schema';
+import { execute, closePool } from './db.js';
+import { initializeSchema } from './schema.js';
 
 async function seed() {
   console.log('Initializing schema...');

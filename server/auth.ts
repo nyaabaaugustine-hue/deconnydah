@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { queryOne, query } from './db';
+import { queryOne, query } from './db.js';
 
 export type UserRole = 'admin' | 'manager' | 'viewer';
 

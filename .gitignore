@@ -40,3 +40,6 @@ server/**/*.d.ts
 
 # Stray Windows artifact (created by an accidental `> nul` redirect in a shell)
 nul
+
+.vercel
+.env*

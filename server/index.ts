@@ -3,8 +3,8 @@
 // Vercel does NOT use this file; it uses `api/index.ts`, which imports the
 // same `app` from `./app` but never calls `.listen()` (Vercel's runtime does
 // that itself around the exported handler).
-import { app, dbReady } from './app';
-import { closePool } from './db';
+import { app, dbReady } from './app.js';
+import { closePool } from './db.js';
 
 const PORT = process.env.PORT || 3001;
 

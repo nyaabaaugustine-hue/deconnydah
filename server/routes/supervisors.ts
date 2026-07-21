@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { query, queryOne, execute, executeReturning } from '../db';
-import { requireFields, requireIdParam, asyncHandler } from '../validate';
-import type { Supervisor } from '../types';
+import { query, queryOne, execute, executeReturning } from '../db.js';
+import { requireFields, requireIdParam, asyncHandler } from '../validate.js';
+import type { Supervisor } from '../types.js';
 import { randomUUID } from 'crypto';
-import { requireAuth, requireRole } from '../auth';
+import { requireAuth, requireRole } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);

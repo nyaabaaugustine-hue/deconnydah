@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { query, execute } from '../db';
-import { asyncHandler } from '../validate';
-import { requireAuth } from '../auth';
+import { query, execute } from '../db.js';
+import { asyncHandler } from '../validate.js';
+import { requireAuth } from '../auth.js';
 
 const router = Router();
 router.use(requireAuth);

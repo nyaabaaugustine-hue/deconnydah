@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { createHash, timingSafeEqual } from 'crypto';
-import { asyncHandler } from '../validate';
-import { requireAuth } from '../auth';
-import { storageService, StorageValidationError, type UploadKind } from '../storage/storage.service';
+import { asyncHandler } from '../validate.js';
+import { requireAuth } from '../auth.js';
+import { storageService, StorageValidationError, type UploadKind } from '../storage/storage.service.js';
 
 const router = Router();
 router.use(requireAuth);
