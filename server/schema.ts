@@ -14,6 +14,23 @@ async function run(sql: string, label: string) {
 export async function initializeSchema(): Promise<void> {
   const t0 = Date.now();
 
+  // Fast-fail: test database connectivity before running 50+ sequential
+  // queries.  If the database is unreachable (e.g. DATABASE_URL missing on
+  // Vercel), each query would hang for connectionTimeoutMillis — potentially
+  // blocking the serverless function for minutes.  A single SELECT 1 with a
+  // short timeout catches this immediately.
+  if (!process.env.DATABASE_URL) {
+    console.warn('  [schema] DATABASE_URL not set — skipping schema init');
+    return;
+  }
+
+  try {
+    await pool.query('SELECT 1');
+  } catch {
+    console.warn('  [schema] Cannot reach database — skipping schema init');
+    return;
+  }
+
   // Fast path — if the schema is already at the current version, skip
   // everything.  The table itself is created below (first boot only).
   try {
