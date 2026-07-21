@@ -77,14 +77,14 @@ router.put(
       }
     }
 
-    let updated = existing;
+    let updated: Record<string, any> = existing!;
     if (fields.length > 0) {
       const param = paramIndex;
-      updated = await executeReturning(
+      updated = (await executeReturning(
         `UPDATE service_providers SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${param}
          RETURNING ${COLUMNS_SQL}`,
         [...values, req.params.id]
-      );
+      )) ?? existing;
     }
 
     res.json(updated);
