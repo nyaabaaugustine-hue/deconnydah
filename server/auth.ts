@@ -198,11 +198,14 @@ export async function seedDefaultAdmin(): Promise<void> {
 
   if (!existing) {
     const id = crypto.randomUUID();
-    const { hash } = hashPassword('admin');
+    // Use ADMIN_PASSWORD env var if set; otherwise fall back to 'admin'.
+    // On Vercel, set ADMIN_PASSWORD in the dashboard for stronger default credentials.
+    const initialPassword = process.env.ADMIN_PASSWORD || 'admin';
+    const { hash } = hashPassword(initialPassword);
     await query(
       'INSERT INTO admin_users (id, username, password_hash, display_name, role, must_change_password) VALUES ($1, $2, $3, $4, $5, $6)',
       [id, 'admin', hash, 'Administrator', 'admin', true]
     );
-    console.log('Default admin user created (admin / admin) — must change password on first login');
+    console.log('Default admin user created (admin / <configured password>) — must change password on first login');
   }
 }
