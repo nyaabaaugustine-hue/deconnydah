@@ -1,5 +1,10 @@
 import { pool, execute } from './db';
 
+// Bump this whenever the schema changes.  initializeSchema() checks this
+// against the `schema_migrations` table — if the row already exists, the
+// entire DDL/migration block is skipped (single round-trip instead of ~80).
+const SCHEMA_VERSION = 3;
+
 async function run(sql: string, label: string) {
   console.log(`  [schema] ${label}...`);
   await pool.query(sql);
@@ -8,6 +13,21 @@ async function run(sql: string, label: string) {
 
 export async function initializeSchema(): Promise<void> {
   const t0 = Date.now();
+
+  // Fast path — if the schema is already at the current version, skip
+  // everything.  The table itself is created below (first boot only).
+  try {
+    const { rows } = await pool.query(
+      'SELECT 1 FROM schema_migrations WHERE version = $1',
+      [SCHEMA_VERSION],
+    );
+    if (rows.length > 0) {
+      console.log(`  [schema] already at version ${SCHEMA_VERSION}, skipping (${Date.now() - t0}ms)`);
+      return;
+    }
+  } catch {
+    // schema_migrations table doesn't yet exist — fall through to full init
+  }
 
   await run(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`, 'extensions');
   await run(`CREATE EXTENSION IF NOT EXISTS pg_trgm`, 'pg_trgm');
@@ -322,7 +342,8 @@ export async function initializeSchema(): Promise<void> {
     'vehicle_documents', 'service_logs', 'battery_logs', 'tyre_logs',
     'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
     'inspections', 'vehicle_assignments', 'work_orders', 'fuel_entries',
-    'expenses', 'company_settings', 'spare_parts', 'service_providers',
+    'expenses', 'notifications', 'company_settings', 'spare_parts', 'service_providers',
+    'driver_licenses', 'driver_contracts', 'driver_evaluations',
   ];
   const softDeleteTables = ['supervisors', 'drivers', 'vehicles'];
 
@@ -489,6 +510,61 @@ export async function initializeSchema(): Promise<void> {
     )
   `, 'table service_providers');
 
+  // Driver management tables
+  await run(`
+    CREATE TABLE IF NOT EXISTS driver_licenses (
+      id TEXT PRIMARY KEY,
+      driver_id TEXT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      license_class TEXT NOT NULL DEFAULT 'B',
+      license_number TEXT NOT NULL,
+      issue_date TEXT NOT NULL,
+      expiry_date TEXT NOT NULL,
+      issuing_authority TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'valid' CHECK (status IN ('valid','expiring_soon','expired','suspended')),
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table driver_licenses');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS driver_contracts (
+      id TEXT PRIMARY KEY,
+      driver_id TEXT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      contract_type TEXT NOT NULL DEFAULT 'full_time' CHECK (contract_type IN ('full_time','part_time','contract','probation')),
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      education TEXT DEFAULT '',
+      qualifications TEXT DEFAULT '',
+      experience_years INTEGER DEFAULT 0 CHECK (experience_years >= 0),
+      salary NUMERIC DEFAULT 0 CHECK (salary >= 0),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','terminated')),
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table driver_contracts');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS driver_evaluations (
+      id TEXT PRIMARY KEY,
+      driver_id TEXT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      evaluator_name TEXT NOT NULL DEFAULT '',
+      evaluation_date TEXT NOT NULL,
+      period TEXT DEFAULT '',
+      safety_score INTEGER CHECK (safety_score BETWEEN 0 AND 100),
+      punctuality_score INTEGER CHECK (punctuality_score BETWEEN 0 AND 100),
+      driving_skill_score INTEGER CHECK (driving_skill_score BETWEEN 0 AND 100),
+      overall_score INTEGER CHECK (overall_score BETWEEN 0 AND 100),
+      strengths TEXT DEFAULT '',
+      improvements TEXT DEFAULT '',
+      comments TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','finalized')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `, 'table driver_evaluations');
+
   // Indexes — batch into one statement per logical group
   await run(`
     CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
@@ -543,6 +619,11 @@ export async function initializeSchema(): Promise<void> {
   await run(`
     CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(id) WHERE status = 'active';
     CREATE INDEX IF NOT EXISTS idx_drivers_active ON drivers(id) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_drivers_full_name ON drivers(full_name);
+    CREATE INDEX IF NOT EXISTS idx_supervisors_full_name ON supervisors(full_name);
+    CREATE INDEX IF NOT EXISTS idx_inspections_driver_date ON inspections(driver_name, inspection_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_revenue_driver_date ON revenue_entries(driver_id, trip_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_accidents_driver_date ON accident_reports(driver_id, accident_date DESC);
     CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_search_history_query ON search_history(query);
     CREATE INDEX IF NOT EXISTS idx_search_history_created ON search_history(created_at DESC);
@@ -553,7 +634,7 @@ export async function initializeSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_events_data ON events USING GIN(data);
-  `, 'indexes batch 6 (misc)');
+  `, 'indexes batch 6 (misc + driver-profile)');
 
   await run(`
     CREATE INDEX IF NOT EXISTS idx_assignments_vehicle ON vehicle_assignments(vehicle_id);
@@ -561,13 +642,25 @@ export async function initializeSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_assignments_status ON vehicle_assignments(status);
     CREATE INDEX IF NOT EXISTS idx_work_orders_vehicle ON work_orders(vehicle_id);
     CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);
+    CREATE INDEX IF NOT EXISTS idx_work_orders_created ON work_orders(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_fuel_vehicle ON fuel_entries(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_fuel_vehicle_date ON fuel_entries(vehicle_id, fuel_date DESC);
     CREATE INDEX IF NOT EXISTS idx_fuel_date ON fuel_entries(fuel_date DESC);
     CREATE INDEX IF NOT EXISTS idx_expenses_vehicle ON expenses(vehicle_id);
     CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+    CREATE INDEX IF NOT EXISTS idx_expenses_category_date ON expenses(category, expense_date DESC);
     CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_spare_parts_name ON spare_parts(name);
+    CREATE INDEX IF NOT EXISTS idx_service_providers_name ON service_providers(name);
+    CREATE INDEX IF NOT EXISTS idx_driver_licenses_driver ON driver_licenses(driver_id);
+    CREATE INDEX IF NOT EXISTS idx_driver_licenses_expiry ON driver_licenses(expiry_date);
+    CREATE INDEX IF NOT EXISTS idx_driver_licenses_status ON driver_licenses(status);
+    CREATE INDEX IF NOT EXISTS idx_driver_contracts_driver ON driver_contracts(driver_id);
+    CREATE INDEX IF NOT EXISTS idx_driver_contracts_status ON driver_contracts(status);
+    CREATE INDEX IF NOT EXISTS idx_driver_evaluations_driver ON driver_evaluations(driver_id);
+    CREATE INDEX IF NOT EXISTS idx_driver_evaluations_date ON driver_evaluations(evaluation_date DESC);
   `, 'indexes batch 7 (new tables)');
 
   // Triggers — updated_at for all tables + audit for select tables
@@ -577,6 +670,7 @@ export async function initializeSchema(): Promise<void> {
     'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
     'inspections', 'vehicle_assignments', 'work_orders', 'fuel_entries',
     'expenses', 'company_settings', 'spare_parts', 'service_providers',
+    'driver_licenses', 'driver_contracts', 'driver_evaluations',
   ];
   const auditTables = ['admin_users', 'drivers', 'vehicles', 'vehicle_documents', 'accident_reports'];
 
@@ -634,6 +728,19 @@ export async function initializeSchema(): Promise<void> {
   if (process.env.NODE_ENV !== 'production') {
     await run('ANALYZE', 'ANALYZE');
   }
+
+  // Record that this version has been applied.  On next boot the fast-path
+  // check above will skip the entire body and return in a single round-trip.
+  await run(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `, 'table schema_migrations');
+  await pool.query(
+    'INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING',
+    [SCHEMA_VERSION],
+  );
 
   console.log(`Schema initialized in ${Date.now() - t0}ms`);
 }

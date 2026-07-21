@@ -24,6 +24,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getNotifications,
   markNotificationRead,
@@ -149,6 +150,7 @@ export function NotificationsView() {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     try {
       await deleteNotification(id);
+      notify.success('Notification deleted');
     } catch {
       await fetchNotifications();
     } finally {

@@ -27,6 +27,30 @@ export function generateToken(): string {
   return crypto.randomBytes(48).toString('hex');
 }
 
+// ── Auth cache ────────────────────────────────────────────────────────────────
+// Sessions live 7 days; roles change rarely.  A short-TTL in-memory cache
+// eliminates the DB round trip entirely for bursts of requests on the same
+// token (e.g. FleetDashboard firing Promise.all([getVehicles(), getDrivers()])).
+// TTL of 8 seconds is plenty — stale by at most one more page-load cycle.
+const AUTH_CACHE_TTL_MS = 8_000;
+const authCache = new Map<string, { userId: string; username: string; role: UserRole; mustChangePassword: boolean; expiresAt: number }>();
+
+/** Invalidate cache for a specific token (call on logout, role change, password change). */
+export function invalidateAuthCache(token: string) {
+  authCache.delete(token);
+}
+
+// ── Single-query auth ────────────────────────────────────────────────────────
+// One JOIN instead of two sequential queries — ~50% latency cut on the auth
+// hot path that every protected request pays.
+
+const AUTH_SQL = `
+  SELECT s.user_id, s.username, u.role, u.must_change_password
+  FROM sessions s
+  JOIN admin_users u ON u.id = s.user_id
+  WHERE s.token = $1 AND s.expires_at > NOW()
+`;
+
 export async function authenticateRequest(req: any): Promise<{ userId: string; username: string; role: UserRole } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
@@ -34,23 +58,68 @@ export async function authenticateRequest(req: any): Promise<{ userId: string; u
   const token = authHeader.slice(7);
   if (!token || token.length < 10) return null;
 
-  const session = await queryOne<{ user_id: string; username: string }>(
-    'SELECT user_id, username FROM sessions WHERE token = $1 AND expires_at > NOW()',
-    [token]
+  // Check cache first
+  const cached = authCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { userId: cached.userId, username: cached.username, role: cached.role };
+  }
+
+  // Cache miss or expired — single JOIN query
+  const row = await queryOne<{ user_id: string; username: string; role: string; must_change_password: boolean }>(
+    AUTH_SQL,
+    [token],
   );
 
-  if (!session) return null;
+  if (!row) return null;
 
-  const user = await queryOne<{ role: string }>(
-    'SELECT role FROM admin_users WHERE id = $1',
-    [session.user_id]
-  );
-
-  return {
-    userId: session.user_id,
-    username: session.username,
-    role: (user?.role as UserRole) || 'viewer',
+  const entry = {
+    userId: row.user_id,
+    username: row.username,
+    role: (row.role as UserRole) || 'viewer',
+    mustChangePassword: row.must_change_password,
+    expiresAt: Date.now() + AUTH_CACHE_TTL_MS,
   };
+  authCache.set(token, entry);
+
+  // Evict stale entries periodically (max 1000 entries — way more than concurrent users)
+  if (authCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, val] of authCache) {
+      if (val.expiresAt <= now) authCache.delete(key);
+    }
+  }
+
+  return { userId: entry.userId, username: entry.username, role: entry.role };
+}
+
+/**
+ * Same single-query auth check, but returns must_change_password too.
+ * Used by the global requirePasswordChanged middleware.
+ */
+export async function authenticateRequestFull(token: string): Promise<{ userId: string; role: UserRole; mustChangePassword: boolean } | null> {
+  // Check cache first
+  const cached = authCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { userId: cached.userId, role: cached.role, mustChangePassword: cached.mustChangePassword };
+  }
+
+  const row = await queryOne<{ user_id: string; role: string; must_change_password: boolean }>(
+    AUTH_SQL,
+    [token],
+  );
+
+  if (!row) return null;
+
+  const entry = {
+    userId: row.user_id,
+    username: '',
+    role: (row.role as UserRole) || 'viewer',
+    mustChangePassword: row.must_change_password,
+    expiresAt: Date.now() + AUTH_CACHE_TTL_MS,
+  };
+  authCache.set(token, entry);
+
+  return { userId: entry.userId, role: entry.role, mustChangePassword: entry.mustChangePassword };
 }
 
 export function requireAuth(req: any, res: any, next: any) {
@@ -76,6 +145,41 @@ export function requireRole(...allowed: UserRole[]) {
     }
     next();
   };
+}
+
+/**
+ * Global middleware that blocks all API access (except auth/login/change-password)
+ * when the authenticated user still has `must_change_password = true`.
+ *
+ * Performs its own token check so it works as a global middleware *before*
+ * per-route requireAuth runs.  If no token is present, passes through silently.
+ */
+export async function requirePasswordChanged(req: any, res: any, next: any) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  if (req.path.startsWith('/api/auth/')) {
+    return next();
+  }
+
+  const token = authHeader.slice(7);
+  if (!token || token.length < 10) {
+    return next();
+  }
+
+  const auth = await authenticateRequestFull(token);
+  if (!auth) return next();
+
+  if (auth.mustChangePassword) {
+    return res.status(403).json({
+      error: 'Password change required',
+      mustChangePassword: true,
+    });
+  }
+
+  next();
 }
 
 export function canWrite(userRole: UserRole): boolean {

@@ -22,6 +22,7 @@ import {
   AlertOctagon,
   FileText,
   ChevronRight,
+  Camera,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +39,9 @@ import {
   getDriverProfile,
   canWrite,
   canDelete,
+  uploadImageToCloudinary,
 } from '@/lib/apiClient';
+import { notify } from '../lib/notify';
 import type { Driver } from '@/types/fleet';
 import type { DriverProfile } from '@/lib/apiClient';
 
@@ -76,19 +79,21 @@ export function DriverManagement({ role }: { role: string }) {
     return () => { cancelled = true; };
   }, []);
 
-  const handleSave = async (data: { fullName: string; phone: string; licenseNumber: string; hireDate: string; status: string }) => {
+  const handleSave = async (data: { fullName: string; phone: string; licenseNumber: string; hireDate: string; status: string; photoUrl?: string }) => {
     try {
+      const payload = { ...data, photoUrl: data.photoUrl || undefined };
       if (editingDriver) {
-        const updated = await updateDriver(editingDriver.id, data);
+        const updated = await updateDriver(editingDriver.id, payload);
         setDrivers(prev => prev.map(d => d.id === editingDriver.id ? updated : d));
       } else {
-        const created = await createDriver(data);
+        const created = await createDriver(payload);
         setDrivers(prev => [...prev, created]);
       }
       setIsModalOpen(false);
       setEditingDriver(null);
+      notify.success(editingDriver ? 'Driver updated' : 'Driver created');
     } catch (err: any) {
-      alert(err.message || 'Failed to save driver');
+      notify.error(err.message || 'Failed to save driver');
     }
   };
 
@@ -101,8 +106,9 @@ export function DriverManagement({ role }: { role: string }) {
       await deleteDriver(id);
       setDrivers(prev => prev.filter(d => d.id !== id));
       setDeletingId(null);
+      notify.success('Driver deleted');
     } catch (err: any) {
-      alert(err.message || 'Failed to delete driver');
+      notify.error(err.message || 'Failed to delete driver');
       setDeletingId(null);
     }
   };
@@ -232,9 +238,13 @@ export function DriverManagement({ role }: { role: string }) {
                     <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3 pt-5 px-5">
                       <div className="flex items-center gap-3">
                         <button onClick={() => setProfileDriverId(driver.id)} className="relative group/avatar" title="View full profile">
-                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center font-bold text-lg border-2 border-slate-200 dark:border-slate-700 group-hover:border-emerald-200 dark:group-hover:border-emerald-800 transition-colors duration-300 cursor-pointer hover:ring-2 hover:ring-emerald-500/30">
-                            <span className="text-slate-700 dark:text-slate-300">{initials}</span>
-                          </div>
+                          {driver.photoUrl ? (
+                            <img src={driver.photoUrl} alt={driver.fullName} className="w-14 h-14 rounded-2xl object-cover border-2 border-slate-200 dark:border-slate-700 group-hover:border-emerald-200 dark:group-hover:border-emerald-800 transition-colors duration-300 cursor-pointer hover:ring-2 hover:ring-emerald-500/30" />
+                          ) : (
+                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center font-bold text-lg border-2 border-slate-200 dark:border-slate-700 group-hover:border-emerald-200 dark:group-hover:border-emerald-800 transition-colors duration-300 cursor-pointer hover:ring-2 hover:ring-emerald-500/30">
+                              <span className="text-slate-700 dark:text-slate-300">{initials}</span>
+                            </div>
+                          )}
                           <span className={cn('absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-[3px] border-white dark:border-slate-900', cfg.dot)} />
                         </button>
                         <div className="cursor-pointer" onClick={() => setProfileDriverId(driver.id)}>
@@ -380,9 +390,12 @@ function DriverFormModal({
   onClose,
 }: {
   driver: Driver | null;
-  onSave: (d: { fullName: string; phone: string; licenseNumber: string; hireDate: string; status: string }) => void;
+  onSave: (d: { fullName: string; phone: string; licenseNumber: string; hireDate: string; status: string; photoUrl?: string }) => void;
   onClose: () => void;
 }) {
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string>(driver?.photoUrl ?? '');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [formData, setFormData] = useState({
     fullName: driver?.fullName ?? '',
     phone: driver?.phone ?? '',
@@ -399,7 +412,17 @@ function DriverFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await onSave(formData);
+    let photoUrl = driver?.photoUrl ?? '';
+    if (photoFile) {
+      setUploadingPhoto(true);
+      try {
+        photoUrl = await uploadImageToCloudinary(photoFile, 'fleet/drivers');
+      } catch (err) {
+        console.error('Photo upload failed:', err);
+      }
+      setUploadingPhoto(false);
+    }
+    await onSave({ ...formData, photoUrl });
     setSaving(false);
   };
 
@@ -430,10 +453,31 @@ function DriverFormModal({
             <form onSubmit={handleSubmit}>
               <div className="p-6 space-y-5">
                 <div className="flex flex-col items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center border-4 border-slate-200 dark:border-slate-700">
-                    <User className="w-8 h-8 text-slate-500 dark:text-slate-400" />
-                  </div>
-                  <p className="text-xs text-slate-400">Driver avatar</p>
+                  <label className="relative group cursor-pointer">
+                    <div className="w-20 h-20 rounded-2xl overflow-hidden border-4 border-slate-200 dark:border-slate-700 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center">
+                      {photoPreview ? (
+                        <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <User className="w-8 h-8 text-slate-500 dark:text-slate-400" />
+                      )}
+                    </div>
+                    <div className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <Camera className="w-5 h-5 text-white" />
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setPhotoFile(file);
+                          setPhotoPreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+                  </label>
+                  <p className="text-xs text-slate-400">Click to upload photo</p>
                 </div>
 
                 <div className="space-y-2">

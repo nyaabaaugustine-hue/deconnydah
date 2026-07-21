@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { VehicleDocument } from '../types';
 import { requireAuth, requireRole } from '../auth';
@@ -80,9 +80,10 @@ router.post(
       return;
     }
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning<VehicleDocument>(
       `INSERT INTO vehicle_documents (id, vehicle_id, doc_type, file_name, issue_date, expiry_date, notes, object_key, bucket, mime_type, file_size)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING ${COLUMNS_SQL}`,
       [
         id,
         b.vehicleId,
@@ -97,8 +98,40 @@ router.post(
         b.fileSize ?? null,
       ]
     );
-    const created = await queryOne<VehicleDocument>(`SELECT ${COLUMNS_SQL} FROM vehicle_documents WHERE id = $1`, [id]);
     res.status(201).json(created);
+  })
+);
+
+// PATCH /api/documents/:id — update metadata only (no file re-upload)
+router.patch(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (b.docType !== undefined) {
+      if (!ALLOWED_DOC_TYPES.includes(b.docType)) {
+        res.status(400).json({ error: `docType must be one of: ${ALLOWED_DOC_TYPES.join(', ')}` });
+        return;
+      }
+      updates.push(`doc_type = $${idx++}`); params.push(b.docType);
+    }
+    if (b.fileName !== undefined) { updates.push(`file_name = $${idx++}`); params.push(b.fileName); }
+    if (b.issueDate !== undefined) { updates.push(`issue_date = $${idx++}`); params.push(b.issueDate); }
+    if (b.expiryDate !== undefined) { updates.push(`expiry_date = $${idx++}`); params.push(b.expiryDate); }
+    if (b.notes !== undefined) { updates.push(`notes = $${idx++}`); params.push(b.notes); }
+    if (updates.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+    updates.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+    const updated = await executeReturning(
+      `UPDATE vehicle_documents SET ${updates.join(', ')} WHERE id = $${idx} RETURNING ${COLUMNS_SQL}`,
+      params
+    );
+    if (!updated) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(updated);
   })
 );
 

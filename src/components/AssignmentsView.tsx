@@ -34,6 +34,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getAssignments,
   createAssignment,
@@ -212,8 +213,9 @@ export function AssignmentsView({ role }: { role: string }) {
       setShowForm(false);
       setEditingAssignment(null);
       resetForm();
+      notify.success(editingAssignment ? 'Assignment updated' : 'Assignment created');
     } catch (err: any) {
-      alert(err.message || 'Failed to save assignment');
+      notify.error(err.message || 'Failed to save assignment');
     } finally {
       setSaving(false);
     }
@@ -224,8 +226,9 @@ export function AssignmentsView({ role }: { role: string }) {
       await deleteAssignment(id);
       setAssignments(prev => prev.filter(a => a.id !== id));
       setDeletingId(null);
+      notify.success('Assignment deleted');
     } catch (err: any) {
-      alert(err.message || 'Failed to delete assignment');
+      notify.error(err.message || 'Failed to delete assignment');
       setDeletingId(null);
     }
   };

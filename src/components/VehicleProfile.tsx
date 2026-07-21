@@ -18,6 +18,9 @@ import {
   User,
   Wallet,
   ClipboardCheck,
+  Upload,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,8 +38,52 @@ import {
   getPhotosForVehicle,
   getValuationsForVehicle,
   getInspectionsForVehicle,
+  createDocument,
+  createServiceLog,
+  createBatteryLog,
+  createTyreLog,
+  createRevenueEntry,
+  createAccidentReport,
+  createVehiclePhoto,
+  createValuation,
+  createInspection,
+  updateDocument,
+  updateServiceLog,
+  updateBatteryLog,
+  updateTyreLog,
+  updateRevenueEntry,
+  updateAccidentReport,
+  updateVehiclePhoto,
+  updateValuation,
+  updateInspection,
+  deleteDocument,
+  deleteServiceLog,
+  deleteBatteryLog,
+  deleteTyreLog,
+  deleteRevenueEntry,
+  deleteAccidentReport,
+  deleteVehiclePhoto,
+  deleteValuation,
+  deleteInspection,
+  uploadImageToCloudinary,
+  uploadFileToMinIO,
+  uploadPhotoToMinIO,
   daysUntilExpiry,
+  canWrite,
+  canDelete,
 } from '@/lib/apiClient';
+import { Plus, X } from 'lucide-react';
+import { notify } from '@/lib/notify';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { Inspection } from '@/lib/apiClient';
 import type {
   Vehicle,
@@ -65,6 +112,52 @@ const categories = [
   { id: 'photos', label: 'Photographs', icon: Camera },
   { id: 'valuation', label: 'Resale Valuation', icon: TrendingUp },
 ];
+
+// Short explainer shown under each section heading, plus the label used on
+// that section's "+ Add" button. Keeps every tab self-explanatory for anyone
+// new to the system, and makes clear what the Add button will create.
+const SECTION_META: Record<string, { description: string; addLabel: string }> = {
+  overview: {
+    description: 'Key vehicle details and a live financial summary calculated from every record below.',
+    addLabel: '',
+  },
+  documents: {
+    description: 'Purchase invoices, insurance policies, registration certificates, and other paperwork for this vehicle — with automatic expiry tracking.',
+    addLabel: 'Add Document',
+  },
+  service: {
+    description: 'Every workshop visit — routine servicing, parts replaced, mileage at the time, and cost.',
+    addLabel: 'Add Service Record',
+  },
+  battery: {
+    description: 'Battery installs and replacements, including brand, supplier, and cost, so you know when the next swap is due.',
+    addLabel: 'Add Battery Record',
+  },
+  tyre: {
+    description: 'Tyre installs by position (front-left, rear-right, etc.), brand, cost, and replacement history.',
+    addLabel: 'Add Tyre Record',
+  },
+  inspection: {
+    description: 'Daily pre-trip driver inspections — a pass/fail/flagged checklist plus notes, so issues are caught before they become breakdowns.',
+    addLabel: 'Log Inspection',
+  },
+  revenue: {
+    description: 'Trips this vehicle has generated income from — route, client, and amount — used to calculate net margin on the Overview tab.',
+    addLabel: 'Add Revenue Entry',
+  },
+  accidents: {
+    description: 'Incident reports for this vehicle, including cost and whether the driver was at fault.',
+    addLabel: 'Report Accident',
+  },
+  photos: {
+    description: 'Photo record of the vehicle\'s condition over time — useful for handovers, insurance claims, and resale listings.',
+    addLabel: 'Add Photo',
+  },
+  valuation: {
+    description: 'Third-party or internal resale valuations over time, tracking how the vehicle\'s market value is trending.',
+    addLabel: 'Add Valuation',
+  },
+};
 
 const statusConfig: Record<VehicleStatus, { label: string; color: string; dot: string; ring: string }> = {
   active: { label: 'Active', color: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800', dot: 'bg-emerald-500', ring: 'ring-emerald-500/20' },
@@ -98,6 +191,8 @@ export function VehicleProfile({ vehicleId, onBack, role }: { vehicleId: string;
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [addModalTab, setAddModalTab] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<{ tab: string; record: any } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -243,10 +338,25 @@ export function VehicleProfile({ vehicleId, onBack, role }: { vehicleId: string;
           <div className="p-[1px] rounded-2xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm">
             <div className="rounded-2xl bg-white dark:bg-slate-900 min-h-[500px] shadow-inner">
               <CardContent className="p-6">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-2">
-                  <span className="w-1.5 h-6 rounded-full bg-gradient-to-b from-emerald-500 to-emerald-600" />
-                  {categories.find((c) => c.id === activeTab)?.label}
-                </h2>
+                <div className="flex items-start justify-between gap-4 mb-2">
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span className="w-1.5 h-6 rounded-full bg-gradient-to-b from-emerald-500 to-emerald-600" />
+                    {categories.find((c) => c.id === activeTab)?.label}
+                  </h2>
+                  {activeTab !== 'overview' && canWrite(role) && (
+                    <Button
+                      size="sm"
+                      onClick={() => setAddModalTab(activeTab)}
+                      className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-xl flex-shrink-0"
+                    >
+                      <Plus className="w-4 h-4 mr-1.5" />
+                      {SECTION_META[activeTab]?.addLabel || 'Add'}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 max-w-2xl">
+                  {SECTION_META[activeTab]?.description}
+                </p>
 
                 {activeTab === 'overview' && (
                   <div className="space-y-6">
@@ -273,15 +383,15 @@ export function VehicleProfile({ vehicleId, onBack, role }: { vehicleId: string;
                 {['documents', 'service', 'battery', 'tyre', 'inspection', 'revenue', 'accidents', 'photos', 'valuation'].map((tab) => (
                   activeTab === tab && (
                     <div key={tab} className="space-y-3">
-                      {tab === 'documents' && (docs.length === 0 ? <EmptyState icon={FileText} message="No documents on file" /> : docs.map(doc => <DocumentRow key={doc.id} doc={doc} />))}
-                      {tab === 'service' && (services.length === 0 ? <EmptyState icon={Wrench} message="No service records" /> : services.map(svc => <ServiceRow key={svc.id} service={svc} />))}
-                      {tab === 'battery' && (batteries.length === 0 ? <EmptyState icon={Battery} message="No battery records" /> : batteries.map(bat => <BatteryRow key={bat.id} battery={bat} />))}
-                      {tab === 'tyre' && (tyres.length === 0 ? <EmptyState icon={CircleDot} message="No tyre records" /> : tyres.map(tyre => <TyreRow key={tyre.id} tyre={tyre} />))}
-                      {tab === 'inspection' && (inspections.length === 0 ? <EmptyState icon={ClipboardCheck} message="No inspections recorded" /> : inspections.map(insp => <InspectionRow key={insp.id} inspection={insp} />))}
-                      {tab === 'revenue' && (revenue.length === 0 ? <EmptyState icon={DollarSign} message="No revenue records" /> : revenue.map(rev => <RevenueRow key={rev.id} entry={rev} />))}
-                      {tab === 'accidents' && (accidents.length === 0 ? <EmptyState icon={AlertTriangle} message="No accident reports" /> : accidents.map(acc => <AccidentRow key={acc.id} accident={acc} />))}
-                      {tab === 'photos' && (photos.length === 0 ? <EmptyState icon={Camera} message="No photographs" /> : <div className="grid grid-cols-2 gap-4">{photos.map(photo => <PhotoCard key={photo.id} photo={photo} />)}</div>)}
-                      {tab === 'valuation' && (vals.length === 0 ? <EmptyState icon={TrendingUp} message="No valuations on file" /> : vals.map(val => <ValuationRow key={val.id} valuation={val} />))}
+                      {tab === 'documents' && (docs.length === 0 ? <EmptyState icon={FileText} message="No documents on file" /> : docs.map(doc => <DocumentRow key={doc.id} doc={doc} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'documents', record: doc }); setAddModalTab('documents'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this document?')) return; try { await deleteDocument(doc.id); setDocs(prev => prev.filter(r => r.id !== doc.id)); notify.success('Document deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'service' && (services.length === 0 ? <EmptyState icon={Wrench} message="No service records" /> : services.map(svc => <ServiceRow key={svc.id} service={svc} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'service', record: svc }); setAddModalTab('service'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this service record?')) return; try { await deleteServiceLog(svc.id); setServices(prev => prev.filter(r => r.id !== svc.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'battery' && (batteries.length === 0 ? <EmptyState icon={Battery} message="No battery records" /> : batteries.map(bat => <BatteryRow key={bat.id} battery={bat} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'battery', record: bat }); setAddModalTab('battery'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this battery record?')) return; try { await deleteBatteryLog(bat.id); setBatteries(prev => prev.filter(r => r.id !== bat.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'tyre' && (tyres.length === 0 ? <EmptyState icon={CircleDot} message="No tyre records" /> : tyres.map(tyre => <TyreRow key={tyre.id} tyre={tyre} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'tyre', record: tyre }); setAddModalTab('tyre'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this tyre record?')) return; try { await deleteTyreLog(tyre.id); setTyres(prev => prev.filter(r => r.id !== tyre.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'inspection' && (inspections.length === 0 ? <EmptyState icon={ClipboardCheck} message="No inspections recorded" /> : inspections.map(insp => <InspectionRow key={insp.id} inspection={insp} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'inspection', record: insp }); setAddModalTab('inspection'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this inspection?')) return; try { await deleteInspection(insp.id); setInspections(prev => prev.filter(r => r.id !== insp.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'revenue' && (revenue.length === 0 ? <EmptyState icon={DollarSign} message="No revenue records" /> : revenue.map(rev => <RevenueRow key={rev.id} entry={rev} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'revenue', record: rev }); setAddModalTab('revenue'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this revenue entry?')) return; try { await deleteRevenueEntry(rev.id); setRevenue(prev => prev.filter(r => r.id !== rev.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'accidents' && (accidents.length === 0 ? <EmptyState icon={AlertTriangle} message="No accident reports" /> : accidents.map(acc => <AccidentRow key={acc.id} accident={acc} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'accidents', record: acc }); setAddModalTab('accidents'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this accident report?')) return; try { await deleteAccidentReport(acc.id); setAccidents(prev => prev.filter(r => r.id !== acc.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
+                      {tab === 'photos' && (photos.length === 0 ? <EmptyState icon={Camera} message="No photographs" /> : <div className="grid grid-cols-2 gap-4">{photos.map(photo => <PhotoCard key={photo.id} photo={photo} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'photos', record: photo }); setAddModalTab('photos'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this photo?')) return; try { await deleteVehiclePhoto(photo.id); setPhotos(prev => prev.filter(r => r.id !== photo.id)); notify.success('Photo deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />)}</div>)}
+                      {tab === 'valuation' && (vals.length === 0 ? <EmptyState icon={TrendingUp} message="No valuations on file" /> : vals.map(val => <ValuationRow key={val.id} valuation={val} onEdit={canWrite(role) ? () => { setEditingRecord({ tab: 'valuation', record: val }); setAddModalTab('valuation'); } : undefined} onDelete={canDelete(role) ? async () => { if (!confirm('Delete this valuation?')) return; try { await deleteValuation(val.id); setVals(prev => prev.filter(r => r.id !== val.id)); notify.success('Record deleted'); } catch (err: any) { notify.error(err.message || 'Failed to delete'); } } : undefined} />))}
                     </div>
                   )
                 ))}
@@ -290,6 +400,606 @@ export function VehicleProfile({ vehicleId, onBack, role }: { vehicleId: string;
           </div>
         </div>
       </div>
+
+      {addModalTab && (
+        <AddRecordModal
+          tab={addModalTab}
+          vehicleId={vehicleId}
+          editingRecord={editingRecord}
+          onClose={() => { setAddModalTab(null); setEditingRecord(null); }}
+          onCreated={(tab, record) => {
+            if (editingRecord) {
+              if (tab === 'documents') setDocs((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'service') setServices((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'battery') setBatteries((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'tyre') setTyres((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'revenue') setRevenue((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'accidents') setAccidents((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'photos') setPhotos((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'valuation') setVals((prev) => prev.map(r => r.id === record.id ? record : r));
+              if (tab === 'inspection') setInspections((prev) => prev.map(r => r.id === record.id ? record : r));
+            } else {
+              if (tab === 'documents') setDocs((prev) => [record, ...prev]);
+              if (tab === 'service') setServices((prev) => [record, ...prev]);
+              if (tab === 'battery') setBatteries((prev) => [record, ...prev]);
+              if (tab === 'tyre') setTyres((prev) => [record, ...prev]);
+              if (tab === 'revenue') setRevenue((prev) => [record, ...prev]);
+              if (tab === 'accidents') setAccidents((prev) => [record, ...prev]);
+              if (tab === 'photos') setPhotos((prev) => [record, ...prev]);
+              if (tab === 'valuation') setVals((prev) => [record, ...prev]);
+              if (tab === 'inspection') setInspections((prev) => [record, ...prev]);
+            }
+            setAddModalTab(null);
+            setEditingRecord(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Add Record Modal ─────────────────────────────────────────────────────────
+
+function AddRecordModal({
+  tab,
+  vehicleId,
+  editingRecord,
+  onClose,
+  onCreated,
+}: {
+  tab: string;
+  vehicleId: string;
+  editingRecord?: { tab: string; record: any } | null;
+  onClose: () => void;
+  onCreated: (tab: string, record: any) => void;
+}) {
+  const isEditing = editingRecord?.tab === tab;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const r = editingRecord?.record;
+
+  // Service form
+  const [svcForm, setSvcForm] = useState({
+    serviceDate: isEditing ? r.serviceDate ?? '' : new Date().toISOString().split('T')[0],
+    mileageKm: isEditing ? String(r.mileageKm ?? '') : '',
+    serviceType: isEditing ? r.serviceType ?? '' : '',
+    partsReplaced: isEditing ? r.partsReplaced ?? '' : '',
+    workshop: isEditing ? r.workshop ?? '' : '',
+    cost: isEditing ? String(r.cost ?? '') : '',
+  });
+
+  // Battery form
+  const [batForm, setBatForm] = useState({
+    installDate: isEditing ? r.installDate ?? '' : new Date().toISOString().split('T')[0],
+    brand: isEditing ? r.brand ?? '' : '',
+    supplier: isEditing ? r.supplier ?? '' : '',
+    cost: isEditing ? String(r.cost ?? '') : '',
+  });
+
+  // Tyre form
+  const [tyreForm, setTyreForm] = useState({
+    position: isEditing ? r.position ?? 'FL' : 'FL',
+    installDate: isEditing ? r.installDate ?? '' : new Date().toISOString().split('T')[0],
+    brand: isEditing ? r.brand ?? '' : '',
+    cost: isEditing ? String(r.cost ?? '') : '',
+  });
+
+  const [docFile, setDocFile] = useState<File | null>(null);
+  // Document form
+  const [docForm, setDocForm] = useState({
+    docType: isEditing ? r.docType ?? 'insurance_policy' : 'insurance_policy',
+    fileName: isEditing ? r.fileName ?? '' : '',
+    issueDate: isEditing ? r.issueDate ?? '' : new Date().toISOString().split('T')[0],
+    expiryDate: isEditing ? r.expiryDate ?? '' : '',
+    notes: isEditing ? r.notes ?? '' : '',
+  });
+
+  // Revenue form
+  const [revForm, setRevForm] = useState({
+    tripDate: isEditing ? r.tripDate ?? '' : new Date().toISOString().split('T')[0],
+    tripReference: isEditing ? r.tripReference ?? '' : '',
+    route: isEditing ? r.route ?? '' : '',
+    client: isEditing ? r.client ?? '' : '',
+    amount: isEditing ? String(r.amount ?? '') : '',
+  });
+
+  // Accident form
+  const [accForm, setAccForm] = useState({
+    accidentDate: isEditing ? r.accidentDate ?? '' : new Date().toISOString().split('T')[0],
+    description: isEditing ? r.description ?? '' : '',
+    cost: isEditing ? String(r.cost ?? '') : '',
+    driverAtFault: isEditing ? !!r.driverAtFault : false,
+  });
+
+  // Photo form
+  const [photoForm, setPhotoForm] = useState({
+    category: isEditing ? r.category ?? 'exterior' : 'exterior',
+    caption: isEditing ? r.caption ?? '' : '',
+    takenAt: isEditing ? r.takenAt ?? '' : new Date().toISOString().split('T')[0],
+    imageUrl: isEditing ? r.imageUrl ?? '' : '',
+  });
+
+  // Valuation form
+  const [valForm, setValForm] = useState({
+    valuationDate: isEditing ? r.valuationDate ?? '' : new Date().toISOString().split('T')[0],
+    source: isEditing ? r.source ?? '' : '',
+    amount: isEditing ? String(r.amount ?? '') : '',
+    conditionNotes: isEditing ? r.conditionNotes ?? '' : '',
+  });
+
+  // Inspection form
+  const [inspForm, setInspForm] = useState({
+    driverName: isEditing ? r.driverName ?? '' : '',
+    inspectionDate: isEditing ? r.inspectionDate ?? '' : new Date().toISOString().split('T')[0],
+    overallStatus: isEditing ? r.overallStatus ?? 'pass' : 'pass',
+    notes: isEditing ? r.notes ?? '' : '',
+  });
+
+  async function handleSubmit() {
+    setSaving(true);
+    setError(null);
+    try {
+      let record: any;
+      if (isEditing) {
+        switch (tab) {
+          case 'service':
+            record = await updateServiceLog(editingRecord!.record.id, {
+              serviceDate: svcForm.serviceDate,
+              mileageKm: parseInt(svcForm.mileageKm) || 0,
+              serviceType: svcForm.serviceType,
+              partsReplaced: svcForm.partsReplaced,
+              workshop: svcForm.workshop,
+              cost: parseFloat(svcForm.cost) || 0,
+            });
+            break;
+          case 'battery':
+            record = await updateBatteryLog(editingRecord!.record.id, {
+              installDate: batForm.installDate,
+              brand: batForm.brand,
+              supplier: batForm.supplier,
+              cost: parseFloat(batForm.cost) || 0,
+            });
+            break;
+          case 'tyre':
+            record = await updateTyreLog(editingRecord!.record.id, {
+              position: tyreForm.position as any,
+              installDate: tyreForm.installDate,
+              brand: tyreForm.brand,
+              cost: parseFloat(tyreForm.cost) || 0,
+            });
+            break;
+          case 'documents':
+            let editFileName = docForm.fileName;
+            if (docFile) {
+              try {
+                const uploadResult = await uploadFileToMinIO(docFile);
+                editFileName = uploadResult.fileName;
+              } catch (err) {
+                console.error('Document upload failed:', err);
+              }
+            }
+            record = await updateDocument(editingRecord!.record.id, {
+              docType: docForm.docType as any,
+              fileName: editFileName,
+              issueDate: docForm.issueDate,
+              expiryDate: docForm.expiryDate || null,
+              notes: docForm.notes || null,
+            });
+            break;
+          case 'revenue':
+            record = await updateRevenueEntry(editingRecord!.record.id, {
+              tripDate: revForm.tripDate,
+              tripReference: revForm.tripReference,
+              route: revForm.route,
+              client: revForm.client,
+              amount: parseFloat(revForm.amount) || 0,
+            });
+            break;
+          case 'accidents':
+            record = await updateAccidentReport(editingRecord!.record.id, {
+              accidentDate: accForm.accidentDate,
+              description: accForm.description,
+              cost: parseFloat(accForm.cost) || 0,
+              driverAtFault: accForm.driverAtFault,
+            });
+            break;
+          case 'photos':
+            record = await updateVehiclePhoto(editingRecord!.record.id, {
+              category: photoForm.category,
+              caption: photoForm.caption,
+              takenAt: photoForm.takenAt,
+              imageUrl: photoForm.imageUrl || undefined,
+            });
+            break;
+          case 'valuation':
+            record = await updateValuation(editingRecord!.record.id, {
+              valuationDate: valForm.valuationDate,
+              source: valForm.source,
+              amount: parseFloat(valForm.amount) || 0,
+              conditionNotes: valForm.conditionNotes,
+            });
+            break;
+          case 'inspection':
+            record = await updateInspection(editingRecord!.record.id, {
+              driverName: inspForm.driverName,
+              inspectionDate: inspForm.inspectionDate,
+              overallStatus: inspForm.overallStatus,
+              checklist: editingRecord!.record.checklist || [],
+              notes: inspForm.notes,
+            });
+            break;
+          default:
+            return;
+        }
+      } else {
+        switch (tab) {
+          case 'service':
+            record = await createServiceLog({
+              vehicleId,
+              serviceDate: svcForm.serviceDate,
+              mileageKm: parseInt(svcForm.mileageKm) || 0,
+              serviceType: svcForm.serviceType,
+              partsReplaced: svcForm.partsReplaced,
+              workshop: svcForm.workshop,
+              cost: parseFloat(svcForm.cost) || 0,
+            });
+            break;
+          case 'battery':
+            record = await createBatteryLog({
+              vehicleId,
+              installDate: batForm.installDate,
+              brand: batForm.brand,
+              supplier: batForm.supplier,
+              cost: parseFloat(batForm.cost) || 0,
+            });
+            break;
+          case 'tyre':
+            record = await createTyreLog({
+              vehicleId,
+              position: tyreForm.position as any,
+              installDate: tyreForm.installDate,
+              brand: tyreForm.brand,
+              cost: parseFloat(tyreForm.cost) || 0,
+            });
+            break;
+          case 'documents':
+            let fileName = docForm.fileName;
+            if (docFile) {
+              try {
+                const uploadResult = await uploadFileToMinIO(docFile);
+                fileName = uploadResult.fileName;
+              } catch (err) {
+                console.error('Document upload failed:', err);
+              }
+            }
+            record = await createDocument({
+              vehicleId,
+              docType: docForm.docType as any,
+              fileName,
+              issueDate: docForm.issueDate,
+              expiryDate: docForm.expiryDate || null,
+              notes: docForm.notes || null,
+            });
+            break;
+          case 'revenue':
+            record = await createRevenueEntry({
+              vehicleId,
+              tripDate: revForm.tripDate,
+              tripReference: revForm.tripReference,
+              route: revForm.route,
+              client: revForm.client,
+              amount: parseFloat(revForm.amount) || 0,
+            });
+            break;
+          case 'accidents':
+            record = await createAccidentReport({
+              vehicleId,
+              accidentDate: accForm.accidentDate,
+              description: accForm.description,
+              cost: parseFloat(accForm.cost) || 0,
+              driverAtFault: accForm.driverAtFault,
+            });
+            break;
+          case 'photos':
+            record = await createVehiclePhoto({
+              vehicleId,
+              category: photoForm.category,
+              caption: photoForm.caption,
+              takenAt: photoForm.takenAt,
+              imageUrl: photoForm.imageUrl || undefined,
+            });
+            break;
+          case 'valuation':
+            record = await createValuation({
+              vehicleId,
+              valuationDate: valForm.valuationDate,
+              source: valForm.source,
+              amount: parseFloat(valForm.amount) || 0,
+              conditionNotes: valForm.conditionNotes,
+            });
+            break;
+          case 'inspection':
+            record = await createInspection({
+              vehicleId,
+              driverName: inspForm.driverName,
+              inspectionDate: inspForm.inspectionDate,
+              overallStatus: inspForm.overallStatus,
+              checklist: [],
+              notes: inspForm.notes,
+            });
+            break;
+          default:
+            return;
+        }
+      }
+      onCreated(tab, record);
+      notify.success(isEditing ? 'Record updated' : 'Record added');
+    } catch (err: any) {
+      setError(err.message || 'Failed to save');
+      notify.error(err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const meta = SECTION_META[tab];
+  const title = isEditing ? `Edit ${meta?.addLabel?.replace(/^Add |Report |Log /, '') || 'Record'}` : (meta?.addLabel || 'Add Record');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-800">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{meta?.description}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {error && (
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
+              {error}
+            </div>
+          )}
+
+          {/* ── Service ──────────────────────────────────────────────── */}
+          {tab === 'service' && (
+            <>
+              <FormField label="Service Date" value={svcForm.serviceDate} onChange={(v) => setSvcForm({ ...svcForm, serviceDate: v })} type="date" />
+              <FormField label="Mileage (km)" value={svcForm.mileageKm} onChange={(v) => setSvcForm({ ...svcForm, mileageKm: v })} type="number" placeholder="e.g. 45000" />
+              <FormField label="Service Type" value={svcForm.serviceType} onChange={(v) => setSvcForm({ ...svcForm, serviceType: v })} placeholder="e.g. Oil change, Brake service" />
+              <FormField label="Parts Replaced" value={svcForm.partsReplaced} onChange={(v) => setSvcForm({ ...svcForm, partsReplaced: v })} placeholder="e.g. Oil filter, Brake pads" />
+              <FormField label="Workshop" value={svcForm.workshop} onChange={(v) => setSvcForm({ ...svcForm, workshop: v })} placeholder="e.g. AutoMech Ghana" />
+              <FormField label="Cost (GH\u20B5)" value={svcForm.cost} onChange={(v) => setSvcForm({ ...svcForm, cost: v })} type="number" placeholder="0.00" />
+            </>
+          )}
+
+          {/* ── Battery ─────────────────────────────────────────────── */}
+          {tab === 'battery' && (
+            <>
+              <FormField label="Install Date" value={batForm.installDate} onChange={(v) => setBatForm({ ...batForm, installDate: v })} type="date" />
+              <FormField label="Brand" value={batForm.brand} onChange={(v) => setBatForm({ ...batForm, brand: v })} placeholder="e.g. Exide" />
+              <FormField label="Supplier" value={batForm.supplier} onChange={(v) => setBatForm({ ...batForm, supplier: v })} placeholder="e.g. Battery World" />
+              <FormField label="Cost (GH\u20B5)" value={batForm.cost} onChange={(v) => setBatForm({ ...batForm, cost: v })} type="number" placeholder="0.00" />
+            </>
+          )}
+
+          {/* ── Tyre ────────────────────────────────────────────────── */}
+          {tab === 'tyre' && (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Position</Label>
+                <Select value={tyreForm.position} onValueChange={(v) => setTyreForm({ ...tyreForm, position: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['FL', 'FR', 'RL', 'RR', 'SPARE'].map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <FormField label="Install Date" value={tyreForm.installDate} onChange={(v) => setTyreForm({ ...tyreForm, installDate: v })} type="date" />
+              <FormField label="Brand" value={tyreForm.brand} onChange={(v) => setTyreForm({ ...tyreForm, brand: v })} placeholder="e.g. Michelin" />
+              <FormField label="Cost (GH\u20B5)" value={tyreForm.cost} onChange={(v) => setTyreForm({ ...tyreForm, cost: v })} type="number" placeholder="0.00" />
+            </>
+          )}
+
+          {/* ── Documents ───────────────────────────────────────────── */}
+          {tab === 'documents' && (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Document Type</Label>
+                <Select value={docForm.docType} onValueChange={(v) => setDocForm({ ...docForm, docType: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="insurance_policy">Insurance Policy</SelectItem>
+                    <SelectItem value="purchase_invoice">Purchase Invoice</SelectItem>
+                    <SelectItem value="registration_certificate">Registration Certificate</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Upload File</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="file"
+                    id="docFile"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setDocFile(file);
+                    }}
+                    className="hidden"
+                  />
+                  <label
+                    htmlFor="docFile"
+                    className="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-sm"
+                  >
+                    <Upload className="w-4 h-4 text-slate-400" />
+                    <span className={docFile ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
+                      {docFile ? docFile.name : 'Choose file (PDF, Image, Word)'}
+                    </span>
+                  </label>
+                  {docFile && (
+                    <button onClick={() => setDocFile(null)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                      <X className="w-4 h-4 text-slate-400" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">Max 25 MB. PDF, JPEG, PNG, Word, or plain text.</p>
+              </div>
+              <FormField label="Issue Date" value={docForm.issueDate} onChange={(v) => setDocForm({ ...docForm, issueDate: v })} type="date" />
+              <FormField label="Expiry Date (optional)" value={docForm.expiryDate} onChange={(v) => setDocForm({ ...docForm, expiryDate: v })} type="date" />
+              <FormField label="Notes (optional)" value={docForm.notes} onChange={(v) => setDocForm({ ...docForm, notes: v })} placeholder="Any notes..." />
+            </>
+          )}
+
+          {/* ── Revenue ─────────────────────────────────────────────── */}
+          {tab === 'revenue' && (
+            <>
+              <FormField label="Trip Date" value={revForm.tripDate} onChange={(v) => setRevForm({ ...revForm, tripDate: v })} type="date" />
+              <FormField label="Trip Reference" value={revForm.tripReference} onChange={(v) => setRevForm({ ...revForm, tripReference: v })} placeholder="e.g. TRP-001" />
+              <FormField label="Route" value={revForm.route} onChange={(v) => setRevForm({ ...revForm, route: v })} placeholder="e.g. Accra - Kumasi" />
+              <FormField label="Client" value={revForm.client} onChange={(v) => setRevForm({ ...revForm, client: v })} placeholder="e.g. Ghana Express" />
+              <FormField label="Amount (GH\u20B5)" value={revForm.amount} onChange={(v) => setRevForm({ ...revForm, amount: v })} type="number" placeholder="0.00" />
+            </>
+          )}
+
+          {/* ── Accidents ───────────────────────────────────────────── */}
+          {tab === 'accidents' && (
+            <>
+              <FormField label="Accident Date" value={accForm.accidentDate} onChange={(v) => setAccForm({ ...accForm, accidentDate: v })} type="date" />
+              <FormField label="Description" value={accForm.description} onChange={(v) => setAccForm({ ...accForm, description: v })} placeholder="What happened..." />
+              <FormField label="Cost (GH\u20B5)" value={accForm.cost} onChange={(v) => setAccForm({ ...accForm, cost: v })} type="number" placeholder="0.00" />
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="driverAtFault"
+                  checked={accForm.driverAtFault}
+                  onChange={(e) => setAccForm({ ...accForm, driverAtFault: e.target.checked })}
+                  className="rounded border-slate-300 dark:border-slate-600"
+                />
+                <Label htmlFor="driverAtFault" className="text-sm text-slate-700 dark:text-slate-300">Driver at fault</Label>
+              </div>
+            </>
+          )}
+
+          {/* ── Photos ──────────────────────────────────────────────── */}
+          {tab === 'photos' && (
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Photo</Label>
+                <label className="relative group cursor-pointer block">
+                  <div className="w-full h-32 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center gap-2 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors">
+                    {photoForm.imageUrl ? (
+                      <img src={photoForm.imageUrl} alt="Preview" className="h-full object-contain rounded" />
+                    ) : (
+                      <>
+                        <Camera className="w-8 h-8 text-slate-400" />
+                        <span className="text-xs text-slate-400">Click to upload photo</span>
+                      </>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const url = await uploadImageToCloudinary(file, 'fleet/vehicles');
+                        setPhotoForm({ ...photoForm, imageUrl: url });
+                      } catch (err) {
+                        console.error('Photo upload failed:', err);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Category</Label>
+                <Select value={photoForm.category} onValueChange={(v) => setPhotoForm({ ...photoForm, category: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {['exterior', 'interior', 'damage', 'maintenance', 'other'].map((c) => (
+                      <SelectItem key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <FormField label="Caption" value={photoForm.caption} onChange={(v) => setPhotoForm({ ...photoForm, caption: v })} placeholder="Describe the photo" />
+              <FormField label="Date Taken" value={photoForm.takenAt} onChange={(v) => setPhotoForm({ ...photoForm, takenAt: v })} type="date" />
+            </>
+          )}
+
+          {/* ── Valuation ───────────────────────────────────────────── */}
+          {tab === 'valuation' && (
+            <>
+              <FormField label="Valuation Date" value={valForm.valuationDate} onChange={(v) => setValForm({ ...valForm, valuationDate: v })} type="date" />
+              <FormField label="Source" value={valForm.source} onChange={(v) => setValForm({ ...valForm, source: v })} placeholder="e.g. Dealer quote, Online tool" />
+              <FormField label="Amount (GH\u20B5)" value={valForm.amount} onChange={(v) => setValForm({ ...valForm, amount: v })} type="number" placeholder="0.00" />
+              <FormField label="Condition Notes" value={valForm.conditionNotes} onChange={(v) => setValForm({ ...valForm, conditionNotes: v })} placeholder="Vehicle condition..." />
+            </>
+          )}
+
+          {/* ── Inspection ──────────────────────────────────────────── */}
+          {tab === 'inspection' && (
+            <>
+              <FormField label="Driver Name" value={inspForm.driverName} onChange={(v) => setInspForm({ ...inspForm, driverName: v })} placeholder="e.g. Kofi Asante" />
+              <FormField label="Inspection Date" value={inspForm.inspectionDate} onChange={(v) => setInspForm({ ...inspForm, inspectionDate: v })} type="date" />
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Overall Status</Label>
+                <Select value={inspForm.overallStatus} onValueChange={(v) => setInspForm({ ...inspForm, overallStatus: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pass">Pass</SelectItem>
+                    <SelectItem value="fail">Fail</SelectItem>
+                    <SelectItem value="flagged">Flagged</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <FormField label="Notes (optional)" value={inspForm.notes} onChange={(v) => setInspForm({ ...inspForm, notes: v })} placeholder="Observations..." />
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 p-5 border-t border-slate-200 dark:border-slate-800">
+          <Button variant="outline" onClick={onClose} className="rounded-xl">Cancel</Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={saving}
+            className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 text-white shadow-lg shadow-emerald-500/20 rounded-xl"
+          >
+            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+            {isEditing ? 'Update' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FormField({ label, value, onChange, type = 'text', placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-semibold text-slate-600 dark:text-slate-400">{label}</Label>
+      <Input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="rounded-xl"
+      />
     </div>
   );
 }
@@ -330,168 +1040,268 @@ function StatBox({ icon: Icon, label, value, sublabel, variant }: {
   );
 }
 
-function DocumentRow({ doc }: { doc: VehicleDocument }) {
+function DocumentRow({ doc, onEdit, onDelete }: { doc: VehicleDocument; onEdit?: () => void; onDelete?: () => void }) {
   const daysLeft = doc.expiryDate ? daysUntilExpiry(doc.expiryDate) : null;
   const isExpired = daysLeft !== null && daysLeft < 0;
   const isSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
 
   return (
     <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/30 transition-colors duration-200">
-            <FileText className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors duration-200" />
+      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/30 transition-colors duration-200">
+              <FileText className="w-5 h-5 text-slate-500 dark:text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors duration-200" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{doc.fileName}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 capitalize">{doc.docType.replace(/_/g, ' ')}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{doc.fileName}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 capitalize">{doc.docType.replace(/_/g, ' ')}</p>
+          <div className="text-right">
+            {isExpired && <Badge variant="outline" className="text-red-700 dark:text-red-400 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/50 font-semibold"><AlertTriangle className="w-3 h-3 mr-1" />Expired</Badge>}
+            {isSoon && <Badge variant="outline" className="text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 font-semibold">{daysLeft}d left</Badge>}
+            {!isExpired && !isSoon && daysLeft !== null && <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 font-semibold"><CheckCircle2 className="w-3 h-3 mr-1" />{daysLeft}d</Badge>}
           </div>
         </div>
-        <div className="text-right">
-          {isExpired && <Badge variant="outline" className="text-red-700 dark:text-red-400 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/50 font-semibold"><AlertTriangle className="w-3 h-3 mr-1" />Expired</Badge>}
-          {isSoon && <Badge variant="outline" className="text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 font-semibold">{daysLeft}d left</Badge>}
-          {!isExpired && !isSoon && daysLeft !== null && <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 font-semibold"><CheckCircle2 className="w-3 h-3 mr-1" />{daysLeft}d</Badge>}
-        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function ServiceRow({ service }: { service: ServiceLog }) {
-  return (
-    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center group-hover:bg-amber-100 dark:group-hover:bg-amber-900/50 transition-colors duration-200"><Wrench className="w-5 h-5 text-amber-600 dark:text-amber-400" /></div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{service.serviceType}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{service.workshop} &middot; {Number(service.mileageKm).toLocaleString()} km</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formatGHS(service.cost)}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(service.serviceDate).toLocaleDateString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BatteryRow({ battery }: { battery: BatteryLog }) {
-  return (
-    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/30 transition-colors duration-200"><Battery className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors" /></div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{battery.brand}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{battery.supplier}</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formatGHS(battery.cost)}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(battery.installDate).toLocaleDateString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TyreRow({ tyre }: { tyre: TyreLog }) {
-  return (
-    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-amber-50 dark:group-hover:bg-amber-950/30 transition-colors"><CircleDot className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors" /></div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{tyre.brand} &middot; {tyre.position}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(tyre.installDate).toLocaleDateString()}</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formatGHS(tyre.cost)}</p>
-          {tyre.replacementDate && <p className="text-xs text-amber-600 dark:text-amber-400">Replaced: {new Date(tyre.replacementDate).toLocaleDateString()}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RevenueRow({ entry }: { entry: RevenueEntry }) {
-  return (
-    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors"><DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /></div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{entry.route}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{entry.client} &middot; {entry.tripReference}</p>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatGHS(entry.amount)}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(entry.tripDate).toLocaleDateString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AccidentRow({ accident }: { accident: AccidentReport }) {
-  return (
-    <div className="p-[1px] rounded-xl bg-gradient-to-b from-red-200 to-red-50 dark:from-red-900/30 dark:to-red-950/20 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-red-50/80 dark:bg-red-950/40 p-3 shadow-inner flex items-start justify-between">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900/50 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" /></div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{accident.description}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{accident.driverAtFault ? 'At Fault' : 'Not at Fault'}</p>
-          </div>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <p className="text-sm font-bold text-red-600 dark:text-red-400">{formatGHS(accident.cost)}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(accident.accidentDate).toLocaleDateString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PhotoCard({ photo }: { photo: VehiclePhoto }) {
+function ServiceRow({ service, onEdit, onDelete }: { service: ServiceLog; onEdit?: () => void; onDelete?: () => void }) {
   return (
     <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
       <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
-        <div className="w-full h-32 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 rounded-lg flex items-center justify-center mb-2 group-hover:from-emerald-50 group-hover:to-emerald-100 dark:group-hover:from-emerald-900/30 dark:group-hover:to-emerald-800/30 transition-all duration-300">
-          <Camera className="w-8 h-8 text-slate-400 dark:text-slate-500 group-hover:text-emerald-500 dark:group-hover:text-emerald-400 transition-colors duration-300" />
-        </div>
-        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{photo.caption}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 capitalize mt-0.5">{photo.category} &middot; {new Date(photo.takenAt).toLocaleDateString()}</p>
-      </div>
-    </div>
-  );
-}
-
-function ValuationRow({ valuation }: { valuation: Valuation }) {
-  return (
-    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
-      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors"><TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /></div>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{valuation.source}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{valuation.conditionNotes}</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center group-hover:bg-amber-100 dark:group-hover:bg-amber-900/50 transition-colors duration-200"><Wrench className="w-5 h-5 text-amber-600 dark:text-amber-400" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{service.serviceType}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{service.workshop} &middot; {Number(service.mileageKm).toLocaleString()} km</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formatGHS(service.cost)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(service.serviceDate).toLocaleDateString()}</p>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatGHS(valuation.amount)}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(valuation.valuationDate).toLocaleDateString()}</p>
-        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function InspectionRow({ inspection }: { inspection: Inspection }) {
+function BatteryRow({ battery, onEdit, onDelete }: { battery: BatteryLog; onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
+      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/30 transition-colors duration-200"><Battery className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{battery.brand}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{battery.supplier}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formatGHS(battery.cost)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(battery.installDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TyreRow({ tyre, onEdit, onDelete }: { tyre: TyreLog; onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
+      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-amber-50 dark:group-hover:bg-amber-950/30 transition-colors"><CircleDot className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{tyre.brand} &middot; {tyre.position}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(tyre.installDate).toLocaleDateString()}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{formatGHS(tyre.cost)}</p>
+            {tyre.replacementDate && <p className="text-xs text-amber-600 dark:text-amber-400">Replaced: {new Date(tyre.replacementDate).toLocaleDateString()}</p>}
+          </div>
+        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RevenueRow({ entry, onEdit, onDelete }: { entry: RevenueEntry; onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
+      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors"><DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{entry.route}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{entry.client} &middot; {entry.tripReference}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatGHS(entry.amount)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(entry.tripDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AccidentRow({ accident, onEdit, onDelete }: { accident: AccidentReport; onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="p-[1px] rounded-xl bg-gradient-to-b from-red-200 to-red-50 dark:from-red-900/30 dark:to-red-950/20 shadow-sm transition-all duration-200 hover:shadow-md group">
+      <div className="rounded-xl bg-red-50/80 dark:bg-red-950/40 p-3 shadow-inner">
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900/50 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{accident.description}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{accident.driverAtFault ? 'At Fault' : 'Not at Fault'}</p>
+            </div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-sm font-bold text-red-600 dark:text-red-400">{formatGHS(accident.cost)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(accident.accidentDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-red-100 dark:border-red-900 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PhotoCard({ photo, onEdit, onDelete }: { photo: VehiclePhoto; onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
+      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
+        <div className="w-full h-32 rounded-lg overflow-hidden mb-2 bg-slate-100 dark:bg-slate-800">
+          {photo.imageUrl ? (
+            <img src={photo.imageUrl} alt={photo.caption || 'Vehicle photo'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700">
+              <Camera className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+            </div>
+          )}
+        </div>
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{photo.caption || 'Untitled'}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 capitalize mt-0.5">{photo.category} &middot; {new Date(photo.takenAt).toLocaleDateString()}</p>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ValuationRow({ valuation, onEdit, onDelete }: { valuation: Valuation; onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="p-[1px] rounded-xl bg-gradient-to-b from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-sm transition-all duration-200 hover:shadow-md group">
+      <div className="rounded-xl bg-white dark:bg-slate-900 p-3 shadow-inner">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 transition-colors"><TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{valuation.source}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{valuation.conditionNotes}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatGHS(valuation.amount)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(valuation.valuationDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InspectionRow({ inspection, onEdit, onDelete }: { inspection: Inspection; onEdit?: () => void; onDelete?: () => void }) {
   const statusColors: Record<string, { label: string; bg: string; icon: string; ring: string }> = {
     pass: { label: 'Pass', bg: 'from-emerald-500 to-emerald-600 text-white', icon: 'bg-emerald-50 text-emerald-600', ring: 'shadow-emerald-500/20' },
     fail: { label: 'Fail', bg: 'from-red-500 to-red-600 text-white', icon: 'bg-red-50 text-red-600', ring: 'shadow-red-500/20' },
@@ -548,6 +1358,16 @@ function InspectionRow({ inspection }: { inspection: Inspection }) {
             )}
           </div>
         </div>
+        {onEdit && onDelete && (
+          <div className="flex gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

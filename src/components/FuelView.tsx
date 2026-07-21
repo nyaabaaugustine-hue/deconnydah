@@ -41,6 +41,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getFuelEntries,
   createFuelEntry,
@@ -240,8 +241,9 @@ export function FuelView({ role }: { role: string }) {
       setEntries((prev) => [{ ...created }, ...prev].sort((a, b) => new Date(b.fuelDate).getTime() - new Date(a.fuelDate).getTime()));
       setShowForm(false);
       resetForm();
+      notify.success('Fuel entry saved');
     } catch (err: any) {
-      alert(err.message || 'Failed to save fuel entry');
+      notify.error(err.message || 'Failed to save fuel entry');
     } finally {
       setSaving(false);
     }

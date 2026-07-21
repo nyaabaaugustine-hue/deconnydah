@@ -39,7 +39,7 @@ export function requireIdParam(paramName = 'id') {
 /** Wraps an async route handler so thrown errors reach Express's error handler
  *  instead of crashing the process or hanging the request. */
 export function asyncHandler(
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
 ) {
   return (req: Request, res: Response, next: NextFunction) => {
     fn(req, res, next).catch(next);

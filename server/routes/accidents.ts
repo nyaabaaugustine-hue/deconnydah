@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { AccidentReport } from '../types';
 import { requireAuth, requireRole } from '../auth';
@@ -37,13 +37,51 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning<AccidentReport>(
       `INSERT INTO accident_reports (id, vehicle_id, driver_id, accident_date, description, cost, driver_at_fault)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.vehicleId, b.driverId ?? null, b.accidentDate, b.description, b.cost, b.driverAtFault]
     );
-    const created = await queryOne<AccidentReport>(`SELECT ${COLUMNS_SQL} FROM accident_reports WHERE id = $1`, [id]);
     res.status(201).json(created);
+  })
+);
+
+// PATCH /api/accidents/:id
+router.patch(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (b.accidentDate !== undefined) { updates.push(`accident_date = $${idx++}`); params.push(b.accidentDate); }
+    if (b.description !== undefined) { updates.push(`description = $${idx++}`); params.push(b.description); }
+    if (b.cost !== undefined) { updates.push(`cost = $${idx++}`); params.push(b.cost); }
+    if (b.driverAtFault !== undefined) { updates.push(`driver_at_fault = $${idx++}`); params.push(b.driverAtFault); }
+    if (b.driverId !== undefined) { updates.push(`driver_id = $${idx++}`); params.push(b.driverId); }
+    if (updates.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+    updates.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+    const updated = await executeReturning(
+      `UPDATE accident_reports SET ${updates.join(', ')} WHERE id = $${idx} RETURNING ${COLUMNS_SQL}`,
+      params
+    );
+    if (!updated) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(updated);
+  })
+);
+
+// DELETE /api/accidents/:id
+router.delete(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    await execute(`DELETE FROM accident_reports WHERE id = $1`, [req.params.id]);
+    res.status(204).send();
   })
 );
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import { requireAuth, requireRole } from '../auth';
 
@@ -89,9 +89,10 @@ router.post(
       return;
     }
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning(
       `INSERT INTO inspections (id, vehicle_id, driver_name, inspection_date, overall_status, checklist, notes, photo_count)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${COLUMNS_SQL}`,
       [
         id,
         b.vehicleId,
@@ -103,8 +104,52 @@ router.post(
         b.photoCount ?? 0,
       ]
     );
-    const created = await queryOne(`SELECT ${COLUMNS_SQL} FROM inspections WHERE id = $1`, [id]);
     res.status(201).json(created);
+  })
+);
+
+// PATCH /api/inspections/:id
+router.patch(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (b.driverName !== undefined) { updates.push(`driver_name = $${idx++}`); params.push(b.driverName); }
+    if (b.inspectionDate !== undefined) { updates.push(`inspection_date = $${idx++}`); params.push(b.inspectionDate); }
+    if (b.overallStatus !== undefined) {
+      if (!ALLOWED_STATUSES.includes(b.overallStatus)) {
+        res.status(400).json({ error: `overallStatus must be one of: ${ALLOWED_STATUSES.join(', ')}` });
+        return;
+      }
+      updates.push(`overall_status = $${idx++}`); params.push(b.overallStatus);
+    }
+    if (b.checklist !== undefined) { updates.push(`checklist = $${idx++}`); params.push(JSON.stringify(b.checklist)); }
+    if (b.notes !== undefined) { updates.push(`notes = $${idx++}`); params.push(b.notes); }
+    if (b.photoCount !== undefined) { updates.push(`photo_count = $${idx++}`); params.push(b.photoCount); }
+    if (updates.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+    updates.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+    const updated = await executeReturning(
+      `UPDATE inspections SET ${updates.join(', ')} WHERE id = $${idx} RETURNING ${COLUMNS_SQL}`,
+      params
+    );
+    if (!updated) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(updated);
+  })
+);
+
+// DELETE /api/inspections/:id
+router.delete(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    await execute(`DELETE FROM inspections WHERE id = $1`, [req.params.id]);
+    res.status(204).send();
   })
 );
 

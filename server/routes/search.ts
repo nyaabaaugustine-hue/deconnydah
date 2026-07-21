@@ -43,7 +43,7 @@ router.post(
     }
 
     const searchTerm = rawQuery;
-    const tsquery = searchTerm.split(/\s+/).map(w => w + ':*').join(' & ');
+    const tsquery = searchTerm.split(/\s+/).map((w: string) => w + ':*').join(' & ');
 
     const results: { type: string; data: any; rank: number }[] = [];
     const searchAll = types.length === 0;

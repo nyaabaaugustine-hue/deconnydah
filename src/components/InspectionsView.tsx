@@ -32,6 +32,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import { getInspections, createInspection, canWrite, type Inspection } from '@/lib/apiClient';
 
 const checklistDefinitions = [
@@ -142,8 +143,9 @@ export function InspectionsView({ role }: { role: string }) {
       setInspections((prev) => [newInspection, ...prev]);
       setShowForm(false);
       resetForm();
+      notify.success('Inspection submitted');
     } catch (err: any) {
-      alert(err.message || 'Failed to submit inspection');
+      notify.error(err.message || 'Failed to submit inspection');
     } finally {
       setSubmitting(false);
     }

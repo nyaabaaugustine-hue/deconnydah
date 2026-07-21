@@ -42,6 +42,7 @@ import {
 } from '@/lib/apiClient';
 import type { Vehicle, Driver } from '@/types/fleet';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   Loader2,
   Plus,
@@ -220,6 +221,7 @@ export function ExpensesView({ role }: { role: string }) {
       setForm(INITIAL_FORM);
       setFormErrors({});
       await fetchAll();
+      notify.success('Expense created');
     } catch (err) {
       console.error('Failed to create expense:', err);
     } finally {
@@ -234,6 +236,7 @@ export function ExpensesView({ role }: { role: string }) {
     try {
       await updateExpense(id, { status });
       await fetchAll();
+      notify.success(`Expense ${status}`);
     } catch (err) {
       console.error('Failed to update expense status:', err);
     }

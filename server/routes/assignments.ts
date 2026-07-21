@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import { requireAuth, requireRole } from '../auth';
 
@@ -20,10 +20,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 200, 1), 1000);
     const rows = await query(
-      `SELECT a.${ASSIGNMENT_COLUMNS.map(c => `a.${c}`).join(', a.')},
+      `SELECT a.id, a.vehicle_id, a.driver_id, a.start_date, a.end_date,
+              a.purpose, a.status, a.notes, a.created_at, a.updated_at,
               v.plate_number, v.make, v.model,
-              d.first_name, d.last_name
-       FROM assignments a
+              d.full_name AS driver_name
+       FROM vehicle_assignments a
        LEFT JOIN vehicles v ON v.id = a.vehicle_id
        LEFT JOIN drivers d ON d.id = a.driver_id
        ORDER BY a.created_at DESC LIMIT $1`,
@@ -39,10 +40,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 200, 1), 1000);
     const rows = await query(
-      `SELECT a.${ASSIGNMENT_COLUMNS.map(c => `a.${c}`).join(', a.')},
+      `SELECT a.id, a.vehicle_id, a.driver_id, a.start_date, a.end_date,
+              a.purpose, a.status, a.notes, a.created_at, a.updated_at,
               v.plate_number, v.make, v.model,
-              d.first_name, d.last_name
-       FROM assignments a
+              d.full_name AS driver_name
+       FROM vehicle_assignments a
        LEFT JOIN vehicles v ON v.id = a.vehicle_id
        LEFT JOIN drivers d ON d.id = a.driver_id
        WHERE a.status = 'active'
@@ -60,7 +62,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 200, 1), 1000);
     const rows = await query(
-      `SELECT ${COLUMNS_SQL} FROM assignments WHERE vehicle_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      `SELECT ${COLUMNS_SQL} FROM vehicle_assignments WHERE vehicle_id = $1 ORDER BY created_at DESC LIMIT $2`,
       [req.params.vehicleId, limit]
     );
     res.json(rows);
@@ -74,7 +76,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 200, 1), 1000);
     const rows = await query(
-      `SELECT ${COLUMNS_SQL} FROM assignments WHERE driver_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      `SELECT ${COLUMNS_SQL} FROM vehicle_assignments WHERE driver_id = $1 ORDER BY created_at DESC LIMIT $2`,
       [req.params.driverId, limit]
     );
     res.json(rows);
@@ -89,12 +91,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
-      `INSERT INTO assignments (id, vehicle_id, driver_id, start_date, end_date, purpose, status, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [id, b.vehicleId, b.driverId, b.startDate, b.endDate ?? null, b.purpose ?? null, b.status ?? 'active', b.notes ?? null]
+    const created = await executeReturning(
+      `INSERT INTO vehicle_assignments (id, vehicle_id, driver_id, start_date, end_date, purpose, status, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${COLUMNS_SQL}`,
+      [id, b.vehicleId, b.driverId, b.startDate, b.endDate ?? null, b.purpose ?? '', b.status ?? 'active', b.notes ?? '']
     );
-    const created = await queryOne(`SELECT ${COLUMNS_SQL} FROM assignments WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -105,7 +107,7 @@ router.put(
   requireRole('admin', 'manager'),
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const existing = await queryOne(`SELECT ${COLUMNS_SQL} FROM assignments WHERE id = $1`, [req.params.id]);
+    const existing = await queryOne(`SELECT ${COLUMNS_SQL} FROM vehicle_assignments WHERE id = $1`, [req.params.id]);
     if (!existing) {
       res.status(404).json({ error: 'Assignment not found' });
       return;
@@ -132,11 +134,16 @@ router.put(
     if (fields.length > 0) {
       fields.push(`updated_at = NOW()`);
       values.push(req.params.id);
-      await execute(`UPDATE assignments SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+      const updated = await executeReturning(
+        `UPDATE vehicle_assignments SET ${fields.join(', ')} WHERE id = $${paramIndex}
+         RETURNING ${COLUMNS_SQL}`,
+        values
+      );
+      res.json(updated);
+      return;
     }
 
-    const updated = await queryOne(`SELECT ${COLUMNS_SQL} FROM assignments WHERE id = $1`, [req.params.id]);
-    res.json(updated);
+    res.json(existing);
   })
 );
 
@@ -146,7 +153,7 @@ router.delete(
   requireRole('admin'),
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const result = await execute(`DELETE FROM assignments WHERE id = $1`, [req.params.id]);
+    const result = await execute(`DELETE FROM vehicle_assignments WHERE id = $1`, [req.params.id]);
     if (result.rowCount === 0) {
       res.status(404).json({ error: 'Assignment not found' });
       return;

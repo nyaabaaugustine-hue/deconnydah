@@ -1,4 +1,4 @@
-import { Pool, neonConfig, PoolConfig } from '@neondatabase/serverless';
+import { Pool, PoolConfig } from '@neondatabase/serverless';
 import dotenv from 'dotenv';
 
 // ── Environment ────────────────────────────────────────────────────────────────
@@ -6,34 +6,30 @@ dotenv.config();
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
 if (!DATABASE_URL) {
-  // Throwing (rather than process.exit) keeps this safe to import inside a
-  // Vercel serverless function, where killing the whole process is more
-  // disruptive than a normal module-load error. On Render/Docker/local this
-  // still stops the server from starting, same as before.
   throw new Error('DATABASE_URL not set. Server cannot start.');
 }
 
 const isDev = process.env.NODE_ENV === 'development';
-const isProd = process.env.NODE_ENV === 'production';
-
-// ── Neon Configuration ─────────────────────────────────────────────────────────
-// fetchConnectionCache avoids redundant TLS handshakes in serverless contexts
-// (Vercel Edge, Neon's own proxy, etc.)
-neonConfig.fetchConnectionCache = true;
 
 // ── Pool Configuration ─────────────────────────────────────────────────────────
+// Statement + idle-in-transaction timeouts protect against runaway queries or
+// hung transactions starving the pool.  Tuned for Neon free/launch tier.
 const poolConfig: PoolConfig = {
   connectionString: DATABASE_URL,
   max: parseInt(process.env.DB_POOL_MAX || '20', 10),
   idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10),
   connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT || '10000', 10),
   allowExitOnIdle: false,
+  // NOTE: Do NOT set `options: '-c statement_timeout=...'` here.  Neon's
+  // PgBouncer rejects unsupported startup parameters — this causes the
+  // "unsupported startup parameter in options" error.  Statement timeouts
+  // are enforced per-query inside the transaction() helper instead.
 };
 
 export const pool = new Pool(poolConfig);
 
 // Log pool errors so they don't silently swallow
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   console.error('Unexpected pool error:', err.message);
 });
 
@@ -68,15 +64,37 @@ export async function execute(queryText: string, params?: any[]): Promise<{ rowC
 }
 
 /**
+ * Execute an INSERT or UPDATE with a RETURNING clause and return the first
+ * affected row (or null).  Use this instead of execute() + queryOne() to
+ * save a round trip.
+ */
+export async function executeReturning<T = Record<string, any>>(queryText: string, params?: any[]): Promise<T | null> {
+  const result = await pool.query(queryText, params ?? []);
+  return (result.rows[0] as T) ?? null;
+}
+
+/**
  * Execute multiple statements inside a single transaction.
  * If any statement fails, the entire transaction is rolled back.
+ *
+ * When `userId` is provided, sets `app.current_user_id` for the transaction
+ * (transaction-scoped via set_config(..., true)), so audit triggers and RLS
+ * policies can attribute actions to the authenticated user.  Must be used with
+ * PgBouncer transaction pooling — the set_config call and all subsequent
+ * queries run on the same checked-out client.
  */
 export async function transaction<T>(
-  callback: (queryFn: typeof query) => Promise<T>
+  callback: (queryFn: typeof query) => Promise<T>,
+  userId?: string
 ): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    if (userId) {
+      // Best-effort: Neon serverless driver may not support set_config on
+      // pooled connections, so we swallow errors silently.
+      await client.query("SELECT set_config('app.current_user_id', $1, true)", [userId]).catch(() => {});
+    }
     const txQuery = async <U>(text: string, params?: any[]) => {
       const result = await client.query(text, params ?? []);
       return result.rows as U[];

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import { requireAuth, requireRole } from '../auth';
 
@@ -47,12 +47,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning(
       `INSERT INTO fuel_entries (id, vehicle_id, driver_id, fuel_date, station, fuel_type, liters, cost_per_liter, total_cost, mileage_km, fuel_card, receipt_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.vehicleId, b.driverId ?? null, b.fuelDate, b.station, b.fuelType, b.liters, b.costPerLiter, b.totalCost, b.mileageKm ?? null, b.fuelCard ?? null, b.receiptNumber ?? null]
     );
-    const created = await queryOne(`SELECT ${COLUMNS_SQL} FROM fuel_entries WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );

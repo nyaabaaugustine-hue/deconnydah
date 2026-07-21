@@ -35,6 +35,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getDocumentsForVehicle,
   getVehicles,
@@ -278,8 +279,9 @@ export function DocumentsView({ role }: { role: string }) {
 
       setShowUpload(false);
       resetUploadForm();
+      notify.success('Document uploaded');
     } catch (err: any) {
-      alert(err.message || 'Upload failed');
+      notify.error(err.message || 'Upload failed');
     } finally {
       setUploading(false);
       setUploadProgress(0);

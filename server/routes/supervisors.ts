@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Supervisor } from '../types';
 import { randomUUID } from 'crypto';
@@ -69,11 +69,11 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
-      `INSERT INTO supervisors (id, full_name, phone, region) VALUES ($1, $2, $3, $4)`,
+    const created = await executeReturning<Supervisor>(
+      `INSERT INTO supervisors (id, full_name, phone, region) VALUES ($1, $2, $3, $4)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.fullName, b.phone, b.region]
     );
-    const created = await queryOne<Supervisor>(`SELECT ${COLUMNS_SQL} FROM supervisors WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -111,12 +111,16 @@ router.patch(
       }
     }
 
+    let updated: Supervisor | null = null;
     if (fields.length > 0) {
       values.push(req.params.id);
-      await execute(`UPDATE supervisors SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+      updated = await executeReturning<Supervisor>(
+        `UPDATE supervisors SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING ${COLUMNS_SQL}`,
+        values
+      );
+    } else {
+      updated = existing;
     }
-
-    const updated = await queryOne<Supervisor>(`SELECT ${COLUMNS_SQL} FROM supervisors WHERE id = $1`, [req.params.id]);
     res.json(updated);
   })
 );

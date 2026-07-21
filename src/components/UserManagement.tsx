@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import { getUsers, createUser, updateUserRole, deleteUser, resetUserPassword, type ManagedUser } from '@/lib/apiClient';
 
 const roleConfig = {
@@ -131,6 +132,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
     setError('');
     try {
       await createUser(form);
+      notify.success('User created');
       onCreated();
     } catch (err: any) {
       setError(err.message);
@@ -194,6 +196,7 @@ function EditRoleModal({ user, onClose, onSaved }: { user: ManagedUser; onClose:
     setSubmitting(true);
     try {
       await updateUserRole(user.id, { displayName, role });
+      notify.success('User updated');
       onSaved();
     } finally {
       setSubmitting(false);
@@ -249,6 +252,7 @@ function ResetPasswordModal({ user, onClose }: { user: ManagedUser; onClose: () 
     try {
       await resetUserPassword(user.id, password);
       setDone(true);
+      notify.success('Password changed');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -299,6 +303,7 @@ function DeleteUserModal({ user, onClose, onDeleted }: { user: ManagedUser; onCl
     setSubmitting(true);
     try {
       await deleteUser(user.id);
+      notify.success('User deleted');
       onDeleted();
     } finally {
       setSubmitting(false);

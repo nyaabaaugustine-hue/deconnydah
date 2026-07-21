@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Driver } from '../types';
 import { requireAuth, requireRole } from '../auth';
@@ -101,7 +101,7 @@ router.get(
       ),
       // Accident reports
       query<{ id: string; vehicle_id: string; accident_date: string; description: string; cost: string; driver_at_fault: boolean }>(
-        `SELECT id, vehicle_id, accident_date, description, cost, driver_at_fault FROM accident_reports WHERE driver_id = $1 ORDER BY accident_date DESC`,
+        `SELECT id, vehicle_id, accident_date, description, cost, driver_at_fault FROM accident_reports WHERE driver_id = $1 ORDER BY accident_date DESC LIMIT 20`,
         [driverId]
       ),
       // Total revenue and trip count
@@ -134,12 +134,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning<Driver>(
       `INSERT INTO drivers (id, full_name, phone, license_number, supervisor_id, hire_date, status, photo_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.fullName, b.phone, b.licenseNumber, b.supervisorId ?? null, b.hireDate, b.status ?? 'active', b.photoUrl ?? null]
     );
-    const created = await queryOne<Driver>(`SELECT ${COLUMNS_SQL} FROM drivers WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -181,12 +181,16 @@ router.patch(
       }
     }
 
+    let updated: Driver | null = null;
     if (fields.length > 0) {
       values.push(req.params.id);
-      await execute(`UPDATE drivers SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+      updated = await executeReturning<Driver>(
+        `UPDATE drivers SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING ${COLUMNS_SQL}`,
+        values
+      );
+    } else {
+      updated = existing;
     }
-
-    const updated = await queryOne<Driver>(`SELECT ${COLUMNS_SQL} FROM drivers WHERE id = $1`, [req.params.id]);
     res.json(updated);
   })
 );

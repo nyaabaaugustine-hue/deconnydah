@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { Vehicle } from '../types';
 import { requireAuth, requireRole } from '../auth';
@@ -81,9 +81,10 @@ router.post(
     }
 
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning<Vehicle>(
       `INSERT INTO vehicles (id, plate_number, make, model, year, vin, purchase_date, purchase_price, status, current_driver_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING ${COLUMNS_SQL}`,
       [
         id,
         b.plateNumber,
@@ -96,11 +97,6 @@ router.post(
         b.status ?? 'active',
         b.currentDriverId ?? null,
       ]
-    );
-
-    const created = await queryOne<Vehicle>(
-      `SELECT ${COLUMNS_SQL} FROM vehicles WHERE id = $1`,
-      [id]
     );
     res.status(201).json(created);
   })
@@ -150,15 +146,16 @@ router.patch(
       }
     }
 
+    let updated: Vehicle | null = null;
     if (fields.length > 0) {
       values.push(req.params.id);
-      await execute(`UPDATE vehicles SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+      updated = await executeReturning<Vehicle>(
+        `UPDATE vehicles SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING ${COLUMNS_SQL}`,
+        values
+      );
+    } else {
+      updated = existing;
     }
-
-    const updated = await queryOne<Vehicle>(
-      `SELECT ${COLUMNS_SQL} FROM vehicles WHERE id = $1`,
-      [req.params.id]
-    );
     res.json(updated);
   })
 );

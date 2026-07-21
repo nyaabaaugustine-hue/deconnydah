@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import { requireAuth, requireRole } from '../auth';
 
@@ -32,12 +32,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning(
       `INSERT INTO service_providers (id, name, type, phone, email, address, specialties, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.name, b.type ?? null, b.phone ?? null, b.email ?? null, b.address ?? null, b.specialties ?? null, b.notes ?? null]
     );
-    const created = await queryOne(`SELECT ${COLUMNS_SQL} FROM service_providers WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -77,13 +77,16 @@ router.put(
       }
     }
 
+    let updated = existing;
     if (fields.length > 0) {
-      fields.push(`updated_at = NOW()`);
-      values.push(req.params.id);
-      await execute(`UPDATE service_providers SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+      const param = paramIndex;
+      updated = await executeReturning(
+        `UPDATE service_providers SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${param}
+         RETURNING ${COLUMNS_SQL}`,
+        [...values, req.params.id]
+      );
     }
 
-    const updated = await queryOne(`SELECT ${COLUMNS_SQL} FROM service_providers WHERE id = $1`, [req.params.id]);
     res.json(updated);
   })
 );

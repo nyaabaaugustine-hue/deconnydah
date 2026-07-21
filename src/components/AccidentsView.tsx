@@ -42,6 +42,7 @@ import {
 } from '@/lib/apiClient';
 import type { AccidentReport, Vehicle, Driver } from '@/types/fleet';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   Loader2,
   Plus,
@@ -184,6 +185,7 @@ export function AccidentsView({ role }: { role: string }) {
       setForm(INITIAL_FORM);
       setFormErrors({});
       await fetchAll();
+      notify.success('Accident report created');
     } catch (err) {
       console.error('Failed to create accident report:', err);
     } finally {

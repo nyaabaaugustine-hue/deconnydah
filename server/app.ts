@@ -8,6 +8,7 @@ import { initializeSchema } from './schema';
 import { healthCheck } from './db';
 import { rateLimit } from './rateLimit';
 import { requestLogger } from './logger';
+import { requirePasswordChanged } from './auth';
 import vehiclesRouter from './routes/vehicles';
 import driversRouter from './routes/drivers';
 import documentsRouter from './routes/documents';
@@ -34,6 +35,9 @@ import notificationsRouter from './routes/notifications';
 import settingsRouter from './routes/settings';
 import sparePartsRouter from './routes/spare-parts';
 import serviceProvidersRouter from './routes/service-providers';
+import driverLicensesRouter from './routes/driver-licenses';
+import driverContractsRouter from './routes/driver-contracts';
+import driverEvaluationsRouter from './routes/driver-evaluations';
 import { seedDefaultAdmin } from './auth';
 
 dotenv.config();
@@ -47,6 +51,12 @@ const __dirname = path.dirname(__filename);
 const isVercel = Boolean(process.env.VERCEL);
 
 export const app = express();
+
+// ── Trust proxy (1 hop) ──────────────────────────────────────────────────────
+// Required for `req.ip` to reflect the real client IP behind Render/Vercel's
+// reverse proxy.  Without this, the rate limiter keys on the proxy's IP —
+// all users share one bucket, causing self-inflicted lockouts.
+app.set('trust proxy', 1);
 
 // ── Security ──────────────────────────────────────────────────────────────────
 
@@ -112,8 +122,17 @@ app.use(express.json({ limit: '1mb' }));
 // brute-force protection in a Vercel deployment.
 
 app.use(requestLogger);
-app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Too many login attempts. Try again in 15 minutes.' }));
-app.use('/api', rateLimit({ windowMs: 60 * 1000, max: 120 }));
+// Rate limiting is disabled in development to avoid lockouts during debugging.
+if (!isProduction) {
+  app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Too many login attempts. Try again in 15 minutes.' }));
+  app.use('/api', rateLimit({ windowMs: 60 * 1000, max: 120 }));
+}
+
+// ── Force password change enforcement ──────────────────────────────────────
+// Blocks all API access (except auth endpoints) when a user's
+// must_change_password flag is still true.  This enforces the forced password
+// change server-side, not just via frontend redirect.
+app.use('/api', requirePasswordChanged);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -143,6 +162,9 @@ app.use('/api/notifications', notificationsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/spare-parts', sparePartsRouter);
 app.use('/api/service-providers', serviceProvidersRouter);
+app.use('/api/driver-licenses', driverLicensesRouter);
+app.use('/api/driver-contracts', driverContractsRouter);
+app.use('/api/driver-evaluations', driverEvaluationsRouter);
 
 app.get('/api/health', async (_req, res) => {
   const isHealthy = await healthCheck();
@@ -185,12 +207,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ── Database init ─────────────────────────────────────────────────────────────
-// Fire-and-forget at module load (not inside a request handler) so it runs once
-// per cold start / process start, not once per request. Non-blocking so the
-// first request doesn't wait on it — routes that need the schema already query
-// Postgres directly and will simply error until this resolves, which in
-// practice finishes well before Neon's first real query on a fresh instance.
-initializeSchema()
+// The promise is exported so that server/index.ts (Render/Docker) can await it
+// before calling .listen(), and api/index.ts (Vercel) can attach a middleware
+// that gates requests on schema readiness.  This eliminates the race condition
+// where the first HTTP requests arrive before tables are created.
+export const dbReady: Promise<void> = initializeSchema()
   .then(() => seedDefaultAdmin())
   .then(() => console.log('Database ready'))
   .catch((error) => {

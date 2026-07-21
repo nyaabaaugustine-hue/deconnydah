@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { VehiclePhoto } from '../types';
 import { requireAuth, requireRole } from '../auth';
@@ -40,13 +40,50 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning<VehiclePhoto>(
       `INSERT INTO vehicle_photos (id, vehicle_id, category, caption, taken_at, image_url)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.vehicleId, b.category, b.caption, b.takenAt, b.imageUrl]
     );
-    const created = await queryOne<VehiclePhoto>(`SELECT ${COLUMNS_SQL} FROM vehicle_photos WHERE id = $1`, [id]);
     res.status(201).json(created);
+  })
+);
+
+// PATCH /api/photos/:id
+router.patch(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (b.category !== undefined) { updates.push(`category = $${idx++}`); params.push(b.category); }
+    if (b.caption !== undefined) { updates.push(`caption = $${idx++}`); params.push(b.caption); }
+    if (b.takenAt !== undefined) { updates.push(`taken_at = $${idx++}`); params.push(b.takenAt); }
+    if (b.imageUrl !== undefined) { updates.push(`image_url = $${idx++}`); params.push(b.imageUrl); }
+    if (updates.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+    updates.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+    const updated = await executeReturning(
+      `UPDATE vehicle_photos SET ${updates.join(', ')} WHERE id = $${idx} RETURNING ${COLUMNS_SQL}`,
+      params
+    );
+    if (!updated) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(updated);
+  })
+);
+
+// DELETE /api/photos/:id
+router.delete(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    await execute(`DELETE FROM vehicle_photos WHERE id = $1`, [req.params.id]);
+    res.status(204).send();
   })
 );
 

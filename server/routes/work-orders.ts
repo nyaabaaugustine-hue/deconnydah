@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import { requireAuth, requireRole } from '../auth';
 
@@ -48,12 +48,12 @@ router.post(
     const b = req.body;
     const id = randomUUID();
     const createdBy = (req as any).user?.id ?? null;
-    await execute(
+    const created = await executeReturning(
       `INSERT INTO work_orders (id, vehicle_id, title, description, priority, status, assigned_to, estimated_cost, due_date, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.vehicleId, b.title, b.description ?? null, b.priority ?? 'medium', 'open', b.assignedTo ?? null, b.estimatedCost ?? null, b.dueDate ?? null, createdBy]
     );
-    const created = await queryOne(`SELECT ${COLUMNS_SQL} FROM work_orders WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -93,11 +93,16 @@ router.put(
     if (fields.length > 0) {
       fields.push(`updated_at = NOW()`);
       values.push(req.params.id);
-      await execute(`UPDATE work_orders SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+      const updated = await executeReturning(
+        `UPDATE work_orders SET ${fields.join(', ')} WHERE id = $${paramIndex}
+         RETURNING ${COLUMNS_SQL}`,
+        values
+      );
+      res.json(updated);
+      return;
     }
 
-    const updated = await queryOne(`SELECT ${COLUMNS_SQL} FROM work_orders WHERE id = $1`, [req.params.id]);
-    res.json(updated);
+    res.json(existing);
   })
 );
 

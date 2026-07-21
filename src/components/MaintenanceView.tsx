@@ -35,6 +35,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getServiceLogsForVehicle,
   createServiceLog,
@@ -389,8 +390,9 @@ export function MaintenanceView({ role }: { role: string }) {
         workshop: '',
         cost: '',
       });
+      notify.success('Service record saved');
     } catch (err: any) {
-      alert(err.message || 'Failed to save service log');
+      notify.error(err.message || 'Failed to save service log');
     } finally {
       setSaving(false);
     }
@@ -425,8 +427,9 @@ export function MaintenanceView({ role }: { role: string }) {
         supplier: '',
         location: '',
       });
+      notify.success('Spare part saved');
     } catch (err: any) {
-      alert(err.message || 'Failed to save spare part');
+      notify.error(err.message || 'Failed to save spare part');
     } finally {
       setSaving(false);
     }
@@ -461,8 +464,9 @@ export function MaintenanceView({ role }: { role: string }) {
         rating: '',
         notes: '',
       });
+      notify.success('Provider saved');
     } catch (err: any) {
-      alert(err.message || 'Failed to save provider');
+      notify.error(err.message || 'Failed to save provider');
     } finally {
       setSaving(false);
     }

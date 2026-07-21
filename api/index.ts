@@ -6,6 +6,15 @@
 // An Express app instance is itself a valid (req, res) => void handler, which
 // is exactly what Vercel's Node runtime expects as a function's default export
 // — no extra wrapping needed.
-import { app } from '../server/app';
+import { app, dbReady } from '../server/app';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export default app;
+// Wrap the Express app so Vercel's Node runtime awaits schema init before
+// the first request is dispatched.  Without this, a cold-start request can
+// hit a route before tables exist (the classic "relation does not exist" error).
+let ready = dbReady.then(() => true).catch(() => true);
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await ready;
+  return app(req, res);
+}

@@ -31,6 +31,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getSettings,
   updateSetting,
@@ -135,6 +136,7 @@ export function SettingsView() {
         )
       );
       setEditingKey(null);
+      notify.success('Setting saved');
     } catch (err) {
       console.error('Failed to update setting:', err);
     } finally {
@@ -167,6 +169,7 @@ export function SettingsView() {
       setDialogOpen(false);
       setForm(INITIAL_FORM);
       setFormErrors({});
+      notify.success('Setting created');
     } catch (err) {
       console.error('Failed to create setting:', err);
     } finally {

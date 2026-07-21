@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import { queryOne, query } from '../db';
-import { verifyPassword, generateToken, authenticateRequest, hashPassword, requireAuth, requireRole } from '../auth';
+import { verifyPassword, generateToken, authenticateRequest, hashPassword, requireAuth, requireRole, invalidateAuthCache } from '../auth';
 import { asyncHandler } from '../validate';
 import type { UserRole } from '../auth';
 
@@ -76,6 +76,7 @@ router.post('/logout', asyncHandler(async (req, res) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
+    invalidateAuthCache(token);
     await query('DELETE FROM sessions WHERE token = $1', [token]);
   }
   res.json({ ok: true });
@@ -109,6 +110,7 @@ router.post('/change-password', requireAuth, asyncHandler(async (req, res) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const currentToken = authHeader.slice(7);
+    invalidateAuthCache(currentToken);
     await query('DELETE FROM sessions WHERE user_id = $1 AND token != $2', [user.userId, currentToken]);
   }
 

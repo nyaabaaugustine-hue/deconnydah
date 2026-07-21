@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import type { BatteryLog } from '../types';
 import { requireAuth, requireRole } from '../auth';
@@ -37,13 +37,51 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning<BatteryLog>(
       `INSERT INTO battery_logs (id, vehicle_id, install_date, replacement_date, brand, supplier, cost)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.vehicleId, b.installDate, b.replacementDate ?? null, b.brand, b.supplier, b.cost]
     );
-    const created = await queryOne<BatteryLog>(`SELECT ${COLUMNS_SQL} FROM battery_logs WHERE id = $1`, [id]);
     res.status(201).json(created);
+  })
+);
+
+// PATCH /api/battery/:id
+router.patch(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (b.installDate !== undefined) { updates.push(`install_date = $${idx++}`); params.push(b.installDate); }
+    if (b.replacementDate !== undefined) { updates.push(`replacement_date = $${idx++}`); params.push(b.replacementDate); }
+    if (b.brand !== undefined) { updates.push(`brand = $${idx++}`); params.push(b.brand); }
+    if (b.supplier !== undefined) { updates.push(`supplier = $${idx++}`); params.push(b.supplier); }
+    if (b.cost !== undefined) { updates.push(`cost = $${idx++}`); params.push(b.cost); }
+    if (updates.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
+    updates.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+    const updated = await executeReturning(
+      `UPDATE battery_logs SET ${updates.join(', ')} WHERE id = $${idx} RETURNING ${COLUMNS_SQL}`,
+      params
+    );
+    if (!updated) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json(updated);
+  })
+);
+
+// DELETE /api/battery/:id
+router.delete(
+  '/:id',
+  requireRole('admin', 'manager'),
+  requireIdParam(),
+  asyncHandler(async (req, res) => {
+    await execute(`DELETE FROM battery_logs WHERE id = $1`, [req.params.id]);
+    res.status(204).send();
   })
 );
 

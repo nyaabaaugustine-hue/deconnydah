@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { query, queryOne, execute } from '../db';
+import { query, queryOne, execute, executeReturning } from '../db';
 import { requireFields, requireIdParam, asyncHandler } from '../validate';
 import { requireAuth, requireRole } from '../auth';
 
@@ -57,12 +57,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = req.body;
     const id = randomUUID();
-    await execute(
+    const created = await executeReturning(
       `INSERT INTO notifications (id, user_id, title, message, type, category, entity_type, entity_id, is_read)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+       RETURNING ${COLUMNS_SQL}`,
       [id, b.userId ?? null, b.title, b.message, b.type ?? 'info', b.category ?? null, b.entityType ?? null, b.entityId ?? null]
     );
-    const created = await queryOne(`SELECT ${COLUMNS_SQL} FROM notifications WHERE id = $1`, [id]);
     res.status(201).json(created);
   })
 );
@@ -72,15 +72,14 @@ router.put(
   '/:id/read',
   requireIdParam(),
   asyncHandler(async (req, res) => {
-    const result = await execute(
-      `UPDATE notifications SET is_read = true WHERE id = $1`,
+    const updated = await executeReturning(
+      `UPDATE notifications SET is_read = true WHERE id = $1 RETURNING ${COLUMNS_SQL}`,
       [req.params.id]
     );
-    if (result.rowCount === 0) {
+    if (!updated) {
       res.status(404).json({ error: 'Notification not found' });
       return;
     }
-    const updated = await queryOne(`SELECT ${COLUMNS_SQL} FROM notifications WHERE id = $1`, [req.params.id]);
     res.json(updated);
   })
 );

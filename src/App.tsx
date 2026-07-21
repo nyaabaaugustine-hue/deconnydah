@@ -19,6 +19,11 @@ import { ReportsView } from '@/components/ReportsView';
 import { NotificationsView } from '@/components/NotificationsView';
 import { SettingsView } from '@/components/SettingsView';
 import { AuditView } from '@/components/AuditView';
+import { LicensesView } from '@/components/LicensesView';
+import { ContractsView } from '@/components/ContractsView';
+import { EvaluationsView } from '@/components/EvaluationsView';
+import { SparePartsView } from '@/components/SparePartsView';
+import { SuppliersView } from '@/components/SuppliersView';
 import { cn } from '@/lib/utils';
 import {
   LogOut,
@@ -459,15 +464,15 @@ export default function App() {
           {activeView === 'audit' && <AuditView />}
           {activeView === 'vehicle-categories' && <MaintenanceView role={role} />}
           {activeView === 'vehicle-lifecycle' && <MaintenanceView role={role} />}
-          {activeView === 'driver-licenses' && <DriverManagement role={role} />}
-          {activeView === 'driver-contracts' && <DriverManagement role={role} />}
-          {activeView === 'driver-evaluations' && <DriverManagement role={role} />}
+          {activeView === 'driver-licenses' && <LicensesView role={role} />}
+          {activeView === 'driver-contracts' && <ContractsView role={role} />}
+          {activeView === 'driver-evaluations' && <EvaluationsView role={role} />}
           {activeView === 'assignment-history' && <AssignmentsView role={role} />}
           {activeView === 'usage-records' && <OperationsView role={role} />}
           {activeView === 'scheduling' && <OperationsView role={role} />}
           {activeView === 'repairs' && <MaintenanceView role={role} />}
-          {activeView === 'spare-parts' && <MaintenanceView role={role} />}
-          {activeView === 'suppliers' && <MaintenanceView role={role} />}
+          {activeView === 'spare-parts' && <SparePartsView role={role} />}
+          {activeView === 'suppliers' && <SuppliersView role={role} />}
         </main>
       </div>
     </div>

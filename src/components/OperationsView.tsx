@@ -38,6 +38,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { notify } from '../lib/notify';
 import {
   getWorkOrders,
   createWorkOrder,
@@ -242,8 +243,9 @@ export function OperationsView({ role }: { role: string }) {
       setShowForm(false);
       setEditingOrder(null);
       resetForm();
+      notify.success(editingOrder ? 'Work order updated' : 'Work order created');
     } catch (err: any) {
-      alert(err.message || 'Failed to save work order');
+      notify.error(err.message || 'Failed to save work order');
     } finally {
       setSaving(false);
     }
@@ -254,8 +256,9 @@ export function OperationsView({ role }: { role: string }) {
       await deleteWorkOrder(id);
       setWorkOrders(prev => prev.filter(wo => wo.id !== id));
       setDeletingId(null);
+      notify.success('Work order deleted');
     } catch (err: any) {
-      alert(err.message || 'Failed to delete work order');
+      notify.error(err.message || 'Failed to delete work order');
       setDeletingId(null);
     }
   };
