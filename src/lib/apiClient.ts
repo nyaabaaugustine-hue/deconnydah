@@ -45,6 +45,41 @@ function coerceNumberFields<T extends Record<string, any>>(obj: T, fields: (keyo
 
 const API_BASE = '/api';
 
+// ── Simple GET cache (5s TTL) ────────────────────────────────────────────────
+// Eliminates redundant fetches when React re-renders or multiple components
+// mount simultaneously (e.g. FleetDashboard + sidebar stats).
+const getCache = new Map<string, { data: any; expiresAt: number }>();
+const CACHE_TTL_MS = 5_000;
+
+function cachedGet<T>(path: string): Promise<T> {
+  const now = Date.now();
+  const cached = getCache.get(path);
+  if (cached && now < cached.expiresAt) return Promise.resolve(cached.data as T);
+
+  return get<T>(path).then((data) => {
+    getCache.set(path, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+    return data;
+  });
+}
+
+/** Prefetch a GET endpoint in the background so the data is cached by the
+ *  time the user navigates to the view.  Fire-and-forget — errors are logged
+ *  but never thrown. */
+export function prefetch(path: string): void {
+  if (getCache.has(path)) return;
+  get<unknown>(path)
+    .then((data) => getCache.set(path, { data, expiresAt: Date.now() + CACHE_TTL_MS }))
+    .catch(() => {});
+}
+
+/** Invalidate cached GET responses (e.g. after a create/update/delete). */
+export function invalidateCache(pathPrefix?: string) {
+  if (!pathPrefix) { getCache.clear(); return; }
+  for (const key of getCache.keys()) {
+    if (key.startsWith(pathPrefix)) getCache.delete(key);
+  }
+}
+
 // ── Auth token management ─────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'fleet_auth_token';
@@ -148,9 +183,17 @@ export async function login(username: string, password: string): Promise<{ token
     try {
       err = JSON.parse(raw);
     } catch {
-      // Non-JSON body (e.g. Vite's dev-proxy default error page) means the request
-      // never actually reached our Express server, not that the server rejected it.
-      throw new Error(BACKEND_UNREACHABLE_MESSAGE);
+      // A response DID come back (we have an HTTP status), it just wasn't JSON.
+      // On Vite dev this can mean the proxy's own error page (backend not running
+      // locally) — but on a real deployment it usually means the serverless
+      // function itself crashed (e.g. missing env var) and the platform returned
+      // its own HTML/text error page. Showing the "run npm run server" message
+      // here would be actively misleading in production, so only show that
+      // hint in dev; otherwise report it as a server-side failure.
+      if (import.meta.env.DEV) {
+        throw new Error(BACKEND_UNREACHABLE_MESSAGE);
+      }
+      throw new Error(`Server error (${res.status}). The backend may have failed to start — check deployment logs.`);
     }
     throw new Error(err.error || `Login failed: ${res.status}`);
   }
@@ -267,6 +310,14 @@ export function createDocument(data: Partial<VehicleDocument>): Promise<VehicleD
   return post<VehicleDocument>('/documents', data).then((r) => convertKeys<VehicleDocument>(r));
 }
 
+export function updateDocument(id: string, data: Partial<VehicleDocument>): Promise<VehicleDocument> {
+  return patch<VehicleDocument>(`/documents/${id}`, data).then((r) => convertKeys<VehicleDocument>(r));
+}
+
+export function deleteDocument(id: string): Promise<void> {
+  return del(`/documents/${id}`);
+}
+
 // ── Service logs (per vehicle) ────────────────────────────────────────────────
 
 export function getServiceLogsForVehicle(vehicleId: string): Promise<ServiceLog[]> {
@@ -277,6 +328,14 @@ export function getServiceLogsForVehicle(vehicleId: string): Promise<ServiceLog[
 
 export function createServiceLog(data: Partial<ServiceLog>): Promise<ServiceLog> {
   return post<ServiceLog>('/services', data).then((r) => coerceNumberFields(convertKeys<ServiceLog>(r), ['cost', 'mileageKm']));
+}
+
+export function updateServiceLog(id: string, data: Partial<ServiceLog>): Promise<ServiceLog> {
+  return patch<ServiceLog>(`/services/${id}`, data).then((r) => coerceNumberFields(convertKeys<ServiceLog>(r), ['cost', 'mileageKm']));
+}
+
+export function deleteServiceLog(id: string): Promise<void> {
+  return del(`/services/${id}`);
 }
 
 // ── Battery logs (per vehicle) ────────────────────────────────────────────────
@@ -291,6 +350,14 @@ export function createBatteryLog(data: Partial<BatteryLog>): Promise<BatteryLog>
   return post<BatteryLog>('/battery', data).then((r) => coerceNumberFields(convertKeys<BatteryLog>(r), ['cost']));
 }
 
+export function updateBatteryLog(id: string, data: Partial<BatteryLog>): Promise<BatteryLog> {
+  return patch<BatteryLog>(`/battery/${id}`, data).then((r) => coerceNumberFields(convertKeys<BatteryLog>(r), ['cost']));
+}
+
+export function deleteBatteryLog(id: string): Promise<void> {
+  return del(`/battery/${id}`);
+}
+
 // ── Tyre logs (per vehicle) ───────────────────────────────────────────────────
 
 export function getTyreLogsForVehicle(vehicleId: string): Promise<TyreLog[]> {
@@ -301,6 +368,14 @@ export function getTyreLogsForVehicle(vehicleId: string): Promise<TyreLog[]> {
 
 export function createTyreLog(data: Partial<TyreLog>): Promise<TyreLog> {
   return post<TyreLog>('/tyres', data).then((r) => coerceNumberFields(convertKeys<TyreLog>(r), ['cost']));
+}
+
+export function updateTyreLog(id: string, data: Partial<TyreLog>): Promise<TyreLog> {
+  return patch<TyreLog>(`/tyres/${id}`, data).then((r) => coerceNumberFields(convertKeys<TyreLog>(r), ['cost']));
+}
+
+export function deleteTyreLog(id: string): Promise<void> {
+  return del(`/tyres/${id}`);
 }
 
 // ── Revenue entries (per vehicle) ─────────────────────────────────────────────
@@ -315,6 +390,14 @@ export function createRevenueEntry(data: Partial<RevenueEntry>): Promise<Revenue
   return post<RevenueEntry>('/revenue', data).then((r) => coerceNumberFields(convertKeys<RevenueEntry>(r), ['amount']));
 }
 
+export function updateRevenueEntry(id: string, data: Partial<RevenueEntry>): Promise<RevenueEntry> {
+  return patch<RevenueEntry>(`/revenue/${id}`, data).then((r) => coerceNumberFields(convertKeys<RevenueEntry>(r), ['amount']));
+}
+
+export function deleteRevenueEntry(id: string): Promise<void> {
+  return del(`/revenue/${id}`);
+}
+
 // ── Accident reports (per vehicle) ────────────────────────────────────────────
 
 export function getAccidentsForVehicle(vehicleId: string): Promise<AccidentReport[]> {
@@ -327,6 +410,14 @@ export function createAccidentReport(data: Partial<AccidentReport>): Promise<Acc
   return post<AccidentReport>('/accidents', data).then((r) => coerceNumberFields(convertKeys<AccidentReport>(r), ['cost']));
 }
 
+export function updateAccidentReport(id: string, data: Partial<AccidentReport>): Promise<AccidentReport> {
+  return patch<AccidentReport>(`/accidents/${id}`, data).then((r) => coerceNumberFields(convertKeys<AccidentReport>(r), ['cost']));
+}
+
+export function deleteAccidentReport(id: string): Promise<void> {
+  return del(`/accidents/${id}`);
+}
+
 // ── Vehicle photos (per vehicle) ──────────────────────────────────────────────
 
 export function getPhotosForVehicle(vehicleId: string): Promise<VehiclePhoto[]> {
@@ -337,6 +428,66 @@ export function getPhotosForVehicle(vehicleId: string): Promise<VehiclePhoto[]> 
 
 export function createVehiclePhoto(data: Partial<VehiclePhoto>): Promise<VehiclePhoto> {
   return post<VehiclePhoto>('/photos', data).then((r) => convertKeys<VehiclePhoto>(r));
+}
+
+export function updateVehiclePhoto(id: string, data: Partial<VehiclePhoto>): Promise<VehiclePhoto> {
+  return patch<VehiclePhoto>(`/photos/${id}`, data).then((r) => convertKeys<VehiclePhoto>(r));
+}
+
+export function deleteVehiclePhoto(id: string): Promise<void> {
+  return del(`/photos/${id}`);
+}
+
+// ── MinIO document upload ──────────────────────────────────────────────────
+// Two-step presigned upload: (1) server gives back a presigned PUT URL,
+// (2) browser PUTs the file directly to MinIO.  The file never touches our
+// server process — only the URL signature is generated server-side.
+
+interface PresignedUpload {
+  uploadUrl: string;
+  objectKey: string;
+  bucket: string;
+  publicUrl?: string;
+}
+
+export async function uploadFileToMinIO(file: File): Promise<{ objectKey: string; bucket: string; fileName: string }> {
+  const sig = await post<PresignedUpload>('/uploads/presign', {
+    kind: 'document',
+    fileName: file.name,
+    contentType: file.type || 'application/octet-stream',
+    sizeBytes: file.size,
+  });
+
+  const res = await fetch(sig.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`File upload failed: ${res.statusText}`);
+  }
+
+  return { objectKey: sig.objectKey, bucket: sig.bucket, fileName: file.name };
+}
+
+export async function uploadPhotoToMinIO(file: File): Promise<{ objectKey: string; bucket: string; publicUrl: string }> {
+  const sig = await post<PresignedUpload>('/uploads/presign', {
+    kind: 'photo',
+    fileName: file.name,
+    contentType: file.type || 'image/jpeg',
+    sizeBytes: file.size,
+  });
+
+  const res = await fetch(sig.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'image/jpeg' },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`Photo upload failed: ${res.statusText}`);
+  }
+
+  return { objectKey: sig.objectKey, bucket: sig.bucket, publicUrl: sig.publicUrl || '' };
 }
 
 // ── Cloudinary image upload ───────────────────────────────────────────────────
@@ -384,6 +535,14 @@ export function createValuation(data: Partial<Valuation>): Promise<Valuation> {
   return post<Valuation>('/valuations', data).then((r) => coerceNumberFields(convertKeys<Valuation>(r), ['amount']));
 }
 
+export function updateValuation(id: string, data: Partial<Valuation>): Promise<Valuation> {
+  return patch<Valuation>(`/valuations/${id}`, data).then((r) => coerceNumberFields(convertKeys<Valuation>(r), ['amount']));
+}
+
+export function deleteValuation(id: string): Promise<void> {
+  return del(`/valuations/${id}`);
+}
+
 // ── Inspections (per vehicle) ─────────────────────────────────────────────────
 
 export interface Inspection {
@@ -428,6 +587,17 @@ export function createInspection(data: {
     ...convertKeys<Inspection>(r),
     checklist: typeof r.checklist === 'string' ? JSON.parse(r.checklist) : r.checklist,
   }));
+}
+
+export function updateInspection(id: string, data: Partial<Inspection>): Promise<Inspection> {
+  return patch<any>(`/inspections/${id}`, data).then((r) => ({
+    ...convertKeys<Inspection>(r),
+    checklist: typeof r.checklist === 'string' ? JSON.parse(r.checklist) : r.checklist,
+  }));
+}
+
+export function deleteInspection(id: string): Promise<void> {
+  return del(`/inspections/${id}`);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -783,4 +953,121 @@ export function updateServiceProvider(id: string, data: Partial<ServiceProvider>
 
 export function deleteServiceProvider(id: string): Promise<void> {
   return del(`/service-providers/${id}`);
+}
+
+// ── Driver Licenses ─────────────────────────────────────────────────────────
+
+export interface DriverLicense {
+  id: string;
+  driverId: string;
+  driverName?: string;
+  licenseClass: string;
+  licenseNumber: string;
+  issueDate: string;
+  expiryDate: string;
+  issuingAuthority: string;
+  status: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getDriverLicenses(): Promise<DriverLicense[]> {
+  return get<any[]>('/driver-licenses').then((rows) => rows.map((r) => convertKeys<DriverLicense>(r)));
+}
+
+export function getDriverLicensesForDriver(driverId: string): Promise<DriverLicense[]> {
+  return get<any[]>(`/driver-licenses/driver/${driverId}`).then((rows) => rows.map((r) => convertKeys<DriverLicense>(r)));
+}
+
+export function createDriverLicense(data: Partial<DriverLicense>): Promise<DriverLicense> {
+  return post<any>('/driver-licenses', data).then((r) => convertKeys<DriverLicense>(r));
+}
+
+export function updateDriverLicense(id: string, data: Partial<DriverLicense>): Promise<DriverLicense> {
+  return patch<any>(`/driver-licenses/${id}`, data).then((r) => convertKeys<DriverLicense>(r));
+}
+
+export function deleteDriverLicense(id: string): Promise<void> {
+  return del(`/driver-licenses/${id}`);
+}
+
+// ── Driver Contracts ────────────────────────────────────────────────────────
+
+export interface DriverContract {
+  id: string;
+  driverId: string;
+  driverName?: string;
+  contractType: string;
+  startDate: string;
+  endDate: string | null;
+  education: string;
+  qualifications: string;
+  experienceYears: number;
+  salary: number;
+  status: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getDriverContracts(): Promise<DriverContract[]> {
+  return get<any[]>('/driver-contracts').then((rows) => rows.map((r) => coerceNumberFields(convertKeys<DriverContract>(r), ['experienceYears', 'salary'])));
+}
+
+export function getDriverContractsForDriver(driverId: string): Promise<DriverContract[]> {
+  return get<any[]>(`/driver-contracts/driver/${driverId}`).then((rows) => rows.map((r) => coerceNumberFields(convertKeys<DriverContract>(r), ['experienceYears', 'salary'])));
+}
+
+export function createDriverContract(data: Partial<DriverContract>): Promise<DriverContract> {
+  return post<any>('/driver-contracts', data).then((r) => coerceNumberFields(convertKeys<DriverContract>(r), ['experienceYears', 'salary']));
+}
+
+export function updateDriverContract(id: string, data: Partial<DriverContract>): Promise<DriverContract> {
+  return patch<any>(`/driver-contracts/${id}`, data).then((r) => coerceNumberFields(convertKeys<DriverContract>(r), ['experienceYears', 'salary']));
+}
+
+export function deleteDriverContract(id: string): Promise<void> {
+  return del(`/driver-contracts/${id}`);
+}
+
+// ── Driver Evaluations ──────────────────────────────────────────────────────
+
+export interface DriverEvaluation {
+  id: string;
+  driverId: string;
+  driverName?: string;
+  evaluatorName: string;
+  evaluationDate: string;
+  period: string;
+  safetyScore: number | null;
+  punctualityScore: number | null;
+  drivingSkillScore: number | null;
+  overallScore: number | null;
+  strengths: string;
+  improvements: string;
+  comments: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getDriverEvaluations(): Promise<DriverEvaluation[]> {
+  return get<any[]>('/driver-evaluations').then((rows) => rows.map((r) => convertKeys<DriverEvaluation>(r)));
+}
+
+export function getDriverEvaluationsForDriver(driverId: string): Promise<DriverEvaluation[]> {
+  return get<any[]>(`/driver-evaluations/driver/${driverId}`).then((rows) => rows.map((r) => convertKeys<DriverEvaluation>(r)));
+}
+
+export function createDriverEvaluation(data: Partial<DriverEvaluation>): Promise<DriverEvaluation> {
+  return post<any>('/driver-evaluations', data).then((r) => convertKeys<DriverEvaluation>(r));
+}
+
+export function updateDriverEvaluation(id: string, data: Partial<DriverEvaluation>): Promise<DriverEvaluation> {
+  return patch<any>(`/driver-evaluations/${id}`, data).then((r) => convertKeys<DriverEvaluation>(r));
+}
+
+export function deleteDriverEvaluation(id: string): Promise<void> {
+  return del(`/driver-evaluations/${id}`);
 }
