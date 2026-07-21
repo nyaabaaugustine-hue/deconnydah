@@ -348,53 +348,6 @@ export async function initializeSchema(): Promise<void> {
     END $$;
   `, 'events partitions');
 
-  // Column drift fixes — CREATE TABLE IF NOT EXISTS above only runs for brand-new
-  // tables, so a table already created by an earlier version of this schema never
-  // gets new columns added automatically. Patch known drift here for every table
-  // that later queries/indexes rely on having created_at/updated_at (and, for the
-  // three soft-deletable tables, deleted_at). Safe to re-run — ADD COLUMN IF NOT
-  // EXISTS no-ops when the column is already present.
-  const timestampColumnTables = [
-    'admin_users', 'supervisors', 'drivers', 'vehicles',
-    'vehicle_documents', 'service_logs', 'battery_logs', 'tyre_logs',
-    'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
-    'inspections', 'work_orders', 'fuel_entries',
-    'expenses', 'notifications', 'company_settings', 'spare_parts', 'service_providers',
-    'driver_licenses', 'driver_contracts', 'driver_evaluations',
-  ];
-  const softDeleteTables = ['supervisors', 'drivers', 'vehicles'];
-
-  for (const tbl of timestampColumnTables) {
-    await run(
-      `ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
-       ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`,
-      `migrate ${tbl}.created_at/updated_at`
-    );
-  }
-  for (const tbl of softDeleteTables) {
-    await run(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`, `migrate ${tbl}.deleted_at`);
-  }
-
-  // MinIO object storage columns — documents/receipts/reports are real uploaded
-  // files now (private bucket, accessed via short-lived signed URLs), not just a
-  // filename string. Photos/avatars stay as a plain public URL in image_url /
-  // photo_url (unchanged), but we also record the object_key so a photo/avatar
-  // can be deleted from the bucket later if its row is deleted.
-  await run(`
-    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS object_key TEXT;
-    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS bucket TEXT;
-    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS mime_type TEXT;
-    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS file_size BIGINT;
-  `, 'migrate vehicle_documents storage columns');
-
-  await run(`
-    ALTER TABLE vehicle_photos ADD COLUMN IF NOT EXISTS object_key TEXT;
-  `, 'migrate vehicle_photos.object_key');
-
-  await run(`
-    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS photo_object_key TEXT;
-  `, 'migrate drivers.photo_object_key');
-
   // New fleet management tables
   await run(`
     CREATE TABLE IF NOT EXISTS vehicle_assignments (
@@ -581,6 +534,53 @@ export async function initializeSchema(): Promise<void> {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `, 'table driver_evaluations');
+
+  // Column drift fixes — CREATE TABLE IF NOT EXISTS above only runs for brand-new
+  // tables, so a table already created by an earlier version of this schema never
+  // gets new columns added automatically. Patch known drift here for every table
+  // that later queries/indexes rely on having created_at/updated_at (and, for the
+  // three soft-deletable tables, deleted_at). Safe to re-run — ADD COLUMN IF NOT
+  // EXISTS no-ops when the column is already present.
+  const timestampColumnTables = [
+    'admin_users', 'supervisors', 'drivers', 'vehicles',
+    'vehicle_documents', 'service_logs', 'battery_logs', 'tyre_logs',
+    'revenue_entries', 'accident_reports', 'vehicle_photos', 'valuations',
+    'inspections', 'work_orders', 'fuel_entries', 'vehicle_assignments',
+    'expenses', 'notifications', 'company_settings', 'spare_parts', 'service_providers',
+    'driver_licenses', 'driver_contracts', 'driver_evaluations',
+  ];
+  const softDeleteTables = ['supervisors', 'drivers', 'vehicles'];
+
+  for (const tbl of timestampColumnTables) {
+    await run(
+      `ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+       ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`,
+      `migrate ${tbl}.created_at/updated_at`
+    );
+  }
+  for (const tbl of softDeleteTables) {
+    await run(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`, `migrate ${tbl}.deleted_at`);
+  }
+
+  // MinIO object storage columns — documents/receipts/reports are real uploaded
+  // files now (private bucket, accessed via short-lived signed URLs), not just a
+  // filename string. Photos/avatars stay as a plain public URL in image_url /
+  // photo_url (unchanged), but we also record the object_key so a photo/avatar
+  // can be deleted from the bucket later if its row is deleted.
+  await run(`
+    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS object_key TEXT;
+    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS bucket TEXT;
+    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS mime_type TEXT;
+    ALTER TABLE vehicle_documents ADD COLUMN IF NOT EXISTS file_size BIGINT;
+  `, 'migrate vehicle_documents storage columns');
+
+  await run(`
+    ALTER TABLE vehicle_photos ADD COLUMN IF NOT EXISTS object_key TEXT;
+  `, 'migrate vehicle_photos.object_key');
+
+  await run(`
+    ALTER TABLE drivers ADD COLUMN IF NOT EXISTS photo_object_key TEXT;
+  `, 'migrate drivers.photo_object_key');
 
   // Indexes — batch into one statement per logical group
   await run(`
