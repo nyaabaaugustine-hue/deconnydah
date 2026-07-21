@@ -179,7 +179,6 @@ export function UserManagement() {
         ) : (
           filtered.map((user) => {
             const cfg = roleConfig[user.role] || roleConfig.viewer;
-            const RoleIcon = cfg.icon;
             const initials = user.displayName.charAt(0).toUpperCase();
 
             return (
