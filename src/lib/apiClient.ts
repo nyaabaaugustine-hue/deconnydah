@@ -162,7 +162,10 @@ export interface AuthUser {
 }
 
 const BACKEND_UNREACHABLE_MESSAGE =
-  "Can't reach the backend server. Make sure `npm run server` is running (in its own terminal, at the same time as `npm run dev`) before signing in.";
+  "Can't reach the backend server. " +
+  (import.meta.env.DEV
+    ? "Make sure `npm run server` is running (in its own terminal, at the same time as `npm run dev`) before signing in."
+    : "On Vercel, make sure your environment variables (especially DATABASE_URL) are set in the project dashboard.");
 
 export async function login(username: string, password: string): Promise<{ token: string; user: AuthUser }> {
   let res: Response;

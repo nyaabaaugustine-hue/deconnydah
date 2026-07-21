@@ -498,7 +498,7 @@ export function FleetDashboard({ onSelectVehicle, role }: { onSelectVehicle: (id
           onClick={() => setShowAddModal(false)}
         >
           <div
-            className="w-full max-w-lg max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300 ease-smooth-in"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Outer shell (double-bezel) */}

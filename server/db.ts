@@ -6,7 +6,7 @@ dotenv.config();
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
 if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL not set. Server cannot start.');
+  console.warn('DATABASE_URL not set. Database queries will fail until it is configured in your environment variables.');
 }
 
 const isDev = process.env.NODE_ENV === 'development';

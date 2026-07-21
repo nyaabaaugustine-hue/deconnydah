@@ -6,6 +6,25 @@ import { Label } from '@/components/ui/label';
 import { login } from '@/lib/apiClient';
 import { notify } from '@/lib/notify';
 
+// Keyframe CSS extracted to a constant to avoid TypeScript JSX parser confusion
+// with { } characters inside template literals in inline <style> tags.
+const KEYFRAME_CSS = `
+  @keyframes cardEnter {
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes textEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes errorIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-animate] { animation: none !important; opacity: 1 !important; transform: none !important; }
+    .active\\:scale-\\[0\\.98\\]:active { transform: none !important; }
+  }
+`;
+
 export function AdminLogin({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -265,22 +284,7 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
       </div>
 
       {/* ── Keyframe styles ──────────────────────────────────────────── */}
-      <style>{`
-        @keyframes cardEnter {
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes textEnter {
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes errorIn {
-          from { opacity: 0; transform: translateY(-4px) scale(0.98); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          [data-animate] { animation: none !important; opacity: 1 !important; transform: none !important; }
-          .active\:scale-\[0\.98\]:active { transform: none !important; }
-        }
-      `}</style>
+      <style>{KEYFRAME_CSS}</style>
     </div>
   );
 }

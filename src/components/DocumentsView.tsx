@@ -573,7 +573,7 @@ export function DocumentsView({ role }: { role: string }) {
           }}
         >
           <div
-            className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+            className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 ease-smooth-in"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-[1px] rounded-2xl bg-gradient-to-br from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-2xl shadow-black/20">
@@ -810,7 +810,7 @@ export function DocumentsView({ role }: { role: string }) {
           onClick={() => setViewDoc(null)}
         >
           <div
-            className="w-full max-w-md animate-in zoom-in-95 duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+            className="w-full max-w-md animate-in zoom-in-95 duration-300 ease-smooth-in"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-[1px] rounded-2xl bg-gradient-to-br from-slate-200 to-white dark:from-slate-700 dark:to-slate-800 shadow-2xl shadow-black/20">
