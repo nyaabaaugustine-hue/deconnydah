@@ -23,8 +23,5 @@
     }
   },
   "include": ["src"],
-  "references": [
-    { "path": "./tsconfig.server.json" },
-    { "path": "./tsconfig.node.json" }
-  ]
+
 }
