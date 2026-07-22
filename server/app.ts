@@ -2,11 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { initializeSchema } from './schema.js';
 import { healthCheck } from './db.js';
-import { rateLimit } from './rateLimit.js';
 import { requestLogger } from './logger.js';
 import { requirePasswordChanged } from './auth.js';
 import vehiclesRouter from './routes/vehicles.js';
@@ -41,14 +38,6 @@ import driverEvaluationsRouter from './routes/driver-evaluations.js';
 import { seedDefaultAdmin } from './auth.js';
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Vercel sets this automatically on every deployment (build, function, edge).
-// We use it to switch behavior that only makes sense for a single long-running
-// process (Render/Docker/local) vs. a stateless serverless function (Vercel).
-const isVercel = Boolean(process.env.VERCEL);
 
 export const app = express();
 
@@ -175,42 +164,14 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// ── Serve the built frontend (Render/Docker/local only) ──────────────────────
-// Lets a single server process (e.g. one Render web service) serve both the API
-// and the compiled Vite app from `dist/`, so the site actually loads when this
-// process is the only thing deployed. In local dev the frontend runs separately
-// via `npm run dev` on :5173, and `dist/` may not exist yet — the static
-// middleware and catch-all below simply no-op (404) until `npm run build` has run.
-//
-// On Vercel this is skipped entirely: Vercel serves `dist/` as static output
-// directly (via `outputDirectory` in vercel.json) and rewrites `/api/*` to this
-// function itself — the `dist` folder isn't even bundled alongside the
-// serverless function, so path.join(__dirname, '..', 'dist') wouldn't resolve
-// to anything meaningful there.
-if (!isVercel) {
-  const distPath = path.join(__dirname, '..', 'dist');
-  app.use(express.static(distPath));
-  // SPA fallback — every non-API, non-static request serves index.html.
-  // Uses a middleware (not a route pattern) to avoid path-to-regexp v8
-  // compatibility issues with catch-all patterns in Express 5.
-  app.use((req, res, next) => {
-    if (req.path.startsWith('/api')) return next();
-    res.sendFile(path.join(distPath, 'index.html'), (err) => {
-      if (err) next();
-    });
-  });
-}
-
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(err.status || 500).json({ error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message });
 });
 
 // ── Database init ─────────────────────────────────────────────────────────────
-// The promise is exported so that server/index.ts (Render/Docker) can await it
-// before calling .listen(), and api/index.ts (Vercel) can attach a middleware
-// that gates requests on schema readiness.  This eliminates the race condition
-// where the first HTTP requests arrive before tables are created.
+// The promise is exported so that server/index.ts can await it before calling
+// .listen(), ensuring tables are created before accepting traffic.
 export const dbReady: Promise<void> = initializeSchema()
   .then(() => seedDefaultAdmin())
   .then(() => console.log('Database ready'))

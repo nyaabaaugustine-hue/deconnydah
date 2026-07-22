@@ -1,8 +1,5 @@
 // Entry point for Render, Docker, and local `npm run server` — a single
 // long-running Node process that both listens on a port and serves the API.
-// Vercel does NOT use this file; it uses `api/index.ts`, which imports the
-// same `app` from `./app` but never calls `.listen()` (Vercel's runtime does
-// that itself around the exported handler).
 import { app, dbReady } from './app.js';
 import { closePool } from './db.js';
 

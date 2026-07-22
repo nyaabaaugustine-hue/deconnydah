@@ -16,11 +16,8 @@
     "noUncheckedSideEffectImports": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "baseUrl": "."
   },
-  "include": ["server/**/*.ts", "api/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src"]
+  "include": ["server/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }
